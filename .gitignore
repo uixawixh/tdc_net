@@ -2,3 +2,5 @@ checkpoints/
 datasets/
 outputs/
 logs/
+
+.idea/
