@@ -1,0 +1,33 @@
+{
+    "Polynomial Ridge Regression": {
+        "polynomialfeatures__degree": 2,
+        "ridge__alpha": 10
+    },
+    "K Neighbors Regressor": {
+        "n_neighbors": 5
+    },
+    "Decision Tree": {
+        "max_depth": 5,
+        "min_samples_split": 5
+    },
+    "Support Vector Machine": {
+        "C": 10,
+        "degree": 2,
+        "kernel": "rbf"
+    },
+    "Random Forest": {
+        "max_depth": null,
+        "max_features": "sqrt",
+        "min_samples_leaf": 1,
+        "min_samples_split": 2,
+        "n_estimators": 100
+    },
+    "Gradient Boosting": {
+        "learning_rate": 0.1,
+        "max_depth": 5,
+        "max_features": "log2",
+        "min_samples_leaf": 1,
+        "min_samples_split": 4,
+        "n_estimators": 200
+    }
+}
