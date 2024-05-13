@@ -3,4 +3,5 @@ datasets/
 outputs/
 logs/
 
+__pycache__/
 .idea/
