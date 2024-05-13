@@ -8,9 +8,9 @@ from typing import Tuple
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from absorption.config import DEVICE
-from absorption.utils.plot_utils import plot_losses
-from absorption.utils.eval_utils import evaluate_loss
+from config import DEVICE
+from utils.plot_utils import plot_losses
+from utils.eval_utils import evaluate_loss
 
 
 def save_checkpoint(epoch, train_loss, val_loss, filename: str, model=None, optimizer=None, scheduler=None, **kwargs):

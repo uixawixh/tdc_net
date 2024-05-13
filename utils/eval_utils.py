@@ -6,7 +6,7 @@ import torch
 import numpy as np
 from sklearn.metrics import r2_score, mean_absolute_error, accuracy_score, f1_score
 
-from absorption.config import DEVICE
+from config import DEVICE
 
 
 def evaluate_loss(model, dataloader, criterion, classify_boundaries=None, loss_weight=None) -> Tuple[float, float, float]:

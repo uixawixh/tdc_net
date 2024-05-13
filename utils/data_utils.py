@@ -16,9 +16,9 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from absorption.config import DEVICE
-from absorption.models.base_model import ApplyTransformToEachLayer
-from absorption.utils.sklearn_utils import StandardizeFeature, get_scaler_for_dataset
+from config import DEVICE
+from models.base_model import ApplyTransformToEachLayer
+from utils.sklearn_utils import StandardizeFeature, get_scaler_for_dataset
 
 
 def get_average_properties(structure: Structure) -> Tuple[float, float, float]:

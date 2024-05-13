@@ -110,8 +110,8 @@ def resnet101(num_features: int, in_channels: int = 3, prior_func: Callable = No
 
 if __name__ == '__main__':
     from base_model import initialize_weights
-    from absorption.utils.training_utils import train_and_eval
-    from absorption.utils.data_utils import get_dataloader_v1
+    from utils.training_utils import train_and_eval
+    from utils.data_utils import get_dataloader_v1
 
     # Prior >=0, but need to avoid nn dead
     model = resnet50(num_features=8, prior_func=lambda x: F.leaky_relu(x, 0.01))

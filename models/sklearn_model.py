@@ -17,8 +17,8 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import cross_validate, train_test_split, GridSearchCV
 
-from absorption.config import SEED, CPU_CORE
-from absorption.utils.sklearn_utils import get_all_dataset
+from config import SEED, CPU_CORE
+from utils.sklearn_utils import get_all_dataset
 
 custom_style = {
     'font.size': 16,
@@ -311,7 +311,7 @@ class SklearnPredictor:
 
 
 if __name__ == '__main__':
-    from absorption.utils.data_utils import MlpDataset, get_data_from_db
+    from utils.data_utils import MlpDataset, get_data_from_db
 
     data = get_data_from_db(
         '../datasets/c2db.db',

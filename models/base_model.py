@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn import init
 
-from absorption.models.resnet import Bottleneck3D
+from models.resnet import Bottleneck3D
 
 
 def initialize_weights(model):
@@ -105,8 +105,8 @@ class ApplyTransformToEachLayer(torch.nn.Module):
 
 
 if __name__ == '__main__':
-    from absorption.utils.data_utils import MlpDataset, get_data_from_db
-    from absorption.utils.training_utils import train_and_eval
+    from utils.data_utils import MlpDataset, get_data_from_db
+    from utils.training_utils import train_and_eval
 
     data = get_data_from_db(
         '../datasets/c2db.db',
