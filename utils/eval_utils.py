@@ -4,13 +4,20 @@ from typing import Tuple
 
 import torch
 import numpy as np
-from sklearn.metrics import r2_score, mean_absolute_error, accuracy_score, f1_score
+from sklearn.metrics import r2_score, mean_absolute_error, accuracy_score, f1_score, mean_squared_error
 
 from config import DEVICE
 
 
-def evaluate_loss(model, dataloader, criterion, classify_boundaries=None, loss_weight=None) -> Tuple[float, float, float]:
-    model.to(DEVICE)
+def evaluate_loss(
+        model,
+        dataloader,
+        criterion,
+        classify_boundaries=None,
+        loss_weight=None
+) -> Tuple[float, float, float, float]:
+    if next(model.parameters()).device != DEVICE:
+        model.to(DEVICE)
     model.eval()  # Set the model to evaluation mode
     total_loss = 0
     all_labels = []
@@ -18,14 +25,11 @@ def evaluate_loss(model, dataloader, criterion, classify_boundaries=None, loss_w
 
     with torch.no_grad():  # Turn off gradients for validation, saves memory and computations
         for datas in dataloader:
-            if len(datas) == 3:
-                features, extra, labels = datas
-                features, extra, labels = features.to(DEVICE), extra.to(DEVICE), labels.to(DEVICE)
-                outputs = model(features, extra)
-            else:
-                features, labels = datas
-                features, labels = features.to(DEVICE), labels.to(DEVICE)
-                outputs = model(features)
+            features = datas[:-1]
+            features = [i.to(DEVICE) for i in features] if isinstance(features, (tuple, list)) else features.to(DEVICE)
+            labels = datas[-1].to(DEVICE)
+            outputs = model(*features)
+
             if len(outputs) == 2:
                 # Calculate mixed loss
                 criterion_classification, criterion_regression = criterion
@@ -54,6 +58,7 @@ def evaluate_loss(model, dataloader, criterion, classify_boundaries=None, loss_w
     # Calculate R2 and MAE
     r2 = r2_score(all_labels, all_predictions)
     mae = mean_absolute_error(all_labels, all_predictions)
+    rmse = np.sqrt(mean_squared_error(all_labels, all_predictions))
 
     if isinstance(criterion, (list, tuple)):
         # Classification score
@@ -62,11 +67,31 @@ def evaluate_loss(model, dataloader, criterion, classify_boundaries=None, loss_w
 
         accuracy = accuracy_score(true_classes, predict_classes)
         print(f"Accuracy: {accuracy}")
-        f1_micro = f1_score(true_classes, predict_classes, average='micro')
-        print(f"F1 Score (Micro): {f1_micro}")
-        f1_macro = f1_score(true_classes, predict_classes, average='macro')
-        print(f"F1 Score (Macro): {f1_macro}")
         f1_weighted = f1_score(true_classes, predict_classes, average='weighted')
         print(f"F1 Score (Weighted): {f1_weighted}")
 
-    return avg_loss, r2, mae
+    return avg_loss, r2, mae, rmse
+
+
+def predict_value(model, dataloader) -> Tuple[np.ndarray, np.ndarray]:
+    model.to(DEVICE)
+    model.eval()
+
+    true_values = []
+    pred_values = []
+
+    with torch.no_grad():
+        for data in dataloader:
+            inputs = data[:-1]
+            labels = data[-1]
+
+            outputs = model(*inputs) if isinstance(inputs, (list, tuple)) else model(inputs)
+
+            outputs = outputs.cpu().numpy()
+            labels = labels.cpu().numpy()
+            true_values.append(labels.flatten())
+            pred_values.append(outputs.flatten())
+
+    true_values = np.hstack(true_values)
+    pred_values = np.hstack(pred_values)
+    return true_values, pred_values

@@ -6,7 +6,6 @@ import shutil
 from typing import Tuple
 
 import torch
-from torch.utils.tensorboard import SummaryWriter
 
 from config import DEVICE
 from utils.plot_utils import plot_losses
@@ -59,24 +58,6 @@ def load_checkpoint(filepath: str, model=None, optimizer=None, scheduler=None, i
         return None, None, None
 
 
-class Logger:
-
-    def __init__(self, log_dir=''):
-        self.log_dir = f'../logs/{log_dir}'
-        self.writer = None
-
-    def __enter__(self):
-        self.writer = SummaryWriter(self.log_dir)
-        return self.writer
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.writer.close()
-        if exc_type is not None:
-            print(f"Error encountered: {exc_val}")
-        # Return False to propagate exception, if any
-        return False
-
-
 def checkpoints_losses_plot(
         checkpoint_path: str,
         num_epochs: int,
@@ -110,6 +91,7 @@ def train_and_eval(
         optimizer,
         scheduler=None,
         checkpoint_path: str = '',
+        checkpoint_step: int = 1,
         start_epoch: int = 1,
         num_epochs: int = 30,
         *,
@@ -129,21 +111,19 @@ def train_and_eval(
         val_losses.append(val_loss)
 
     model = model.to(DEVICE)
+    model.train()
     length = len(train_loader) // 10
 
+    step = 0
+    best_score = 0
     for epoch in range(start_epoch, num_epochs + 1):
-        model.train()
         train_loss = 0
         start_time = time.time()
         for i, datas in enumerate(train_loader, 1):
-            if len(datas) == 3:
-                features, extra, labels = datas
-                features, extra, labels = features.to(DEVICE), extra.to(DEVICE), labels.to(DEVICE)
-                outputs = model(features, extra)
-            else:
-                features, labels = datas
-                features, labels = features.to(DEVICE), labels.to(DEVICE)
-                outputs = model(features)
+            features = datas[:-1]
+            features = [i.to(DEVICE) for i in features] if isinstance(features, (tuple, list)) else features.to(DEVICE)
+            labels = datas[-1].to(DEVICE)
+            outputs = model(*features)
 
             if isinstance(criterion, (list, tuple)):
                 # The first should be loss of classification
@@ -169,18 +149,20 @@ def train_and_eval(
 
         train_loss /= len(train_loader)
         train_time = time.time() - start_time
-        val_loss, r2, mae = evaluate_loss(model, val_loader, criterion, classify_boundaries, (1, 0.01))
+        val_loss, r2, mae, rmse = evaluate_loss(model, val_loader, criterion, classify_boundaries, (1, 0.01))
+        best_score = max(r2, best_score)
         train_losses.append(train_loss)
         val_losses.append(val_loss)
         print(
             f'Epoch [{epoch}/{num_epochs}] Train Loss: {train_loss:.4f},',
             f'Validation Loss: {val_loss:.4f}, cost: {train_time:.2f}s\n',
-            f'Validation R2: {r2:.2f}, MAE: {mae:.4f}'
+            f'Validation R2: {r2:.2f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}'
         )
 
         scheduler and scheduler.step()
 
-        checkpoint_path and save_checkpoint(
+        step += 1
+        checkpoint_path and step % checkpoint_step == 0 and save_checkpoint(
             epoch=epoch,
             model=model,
             optimizer=optimizer,
@@ -191,8 +173,9 @@ def train_and_eval(
             filename=f'{checkpoint_path}/model_epoch_{epoch}.ckpt'
         )
     # print(train_losses, val_losses)
+    print('Validation best Score: ', best_score)
     plot_losses(train_losses, val_losses)
 
 
 if __name__ == '__main__':
-    checkpoints_losses_plot('../checkpoints/tdcnet_v1', 60, remove_model=True)
+    checkpoints_losses_plot('../checkpoints/v2', 60, remove_model=True)

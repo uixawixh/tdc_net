@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn import init
 
-from models.resnet import Bottleneck3D
+from models.tdc_net import Bottleneck3D
 
 
 def initialize_weights(model):
@@ -26,10 +26,6 @@ def initialize_weights(model):
             if m.bias is not None:
                 init.constant_(m.bias, 0)
 
-    for m in model.modules():
-        if isinstance(m, Bottleneck3D) and m.bn3.weight is not None:
-            nn.init.constant_(m.bn3.weight, 0)
-
 
 class MLP(nn.Module):
 
@@ -46,7 +42,7 @@ class MLP(nn.Module):
         out = F.mish(self.hidden(out))
         out = self.dropout(out)
         out = self.output_fc(out)
-        return F.relu(out)
+        return out
 
 
 class HierarchicalModel(nn.Module):
@@ -83,27 +79,6 @@ class HierarchicalModel(nn.Module):
         return classification_logits, regression_outputs.squeeze(1)
 
 
-class ApplyTransformToEachLayer(torch.nn.Module):
-    def __init__(self, transform):
-        super().__init__()
-        self.transform = transform
-
-    def forward(self, img):
-        # img(C, H, W)
-        transformed_layers = []
-        seed = torch.initial_seed()
-
-        for i in range(img.shape[0]):
-            random.seed(seed)
-            torch.manual_seed(seed)
-
-            layer = self.transform(img[i, ...].unsqueeze(0))
-            transformed_layers.append(layer.squeeze(0))
-
-        img_transformed = torch.stack(transformed_layers)
-        return img_transformed
-
-
 if __name__ == '__main__':
     from utils.data_utils import MlpDataset, get_data_from_db
     from utils.training_utils import train_and_eval
@@ -117,11 +92,12 @@ if __name__ == '__main__':
 
     train, val = torch.utils.data.random_split(dataset, (0.8, 0.2))
 
-    model = HierarchicalModel(8)
+    model = MLP(8)
     initialize_weights(model)
-    optimizer = torch.optim.Adam(model.parameters(), lr=5e-3)
-    criterion = [torch.nn.CrossEntropyLoss(), torch.nn.HuberLoss()]
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    criterion = torch.nn.HuberLoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 20, 1, 0)
 
     train = torch.utils.data.DataLoader(train, batch_size=32)
     val = torch.utils.data.DataLoader(val, batch_size=32)
-    train_and_eval(model, train, val, criterion, optimizer, num_epochs=1000)
+    train_and_eval(model, train, val, criterion, optimizer, scheduler=scheduler, num_epochs=1000)

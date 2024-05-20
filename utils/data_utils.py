@@ -3,22 +3,54 @@
 import os
 import math
 import json
+import random
 from functools import reduce
 from typing import Union, List, Callable, Dict, Tuple
 
 import torch
+import joblib
 import numpy as np
+from tqdm import tqdm
 from ase import Atoms
 from ase.db import connect
 from ase.db.core import AtomsRow
+from ase.geometry import get_distances
 from pymatgen.core import Structure, Lattice, Element
 from pymatgen.io.ase import AseAtomsAdaptor
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset, random_split
 
 from config import DEVICE
-from models.base_model import ApplyTransformToEachLayer
 from utils.sklearn_utils import StandardizeFeature, get_scaler_for_dataset
+from config import SEED
+
+
+class RandomCropAndRotate3D:
+    def __init__(self, output_size, flip_prob=0.5, rotate_prob=0.5):
+        assert isinstance(output_size, (int, tuple))
+        self.output_size = output_size if isinstance(output_size, tuple) else (output_size, output_size)
+        self.flip_prob = flip_prob
+        self.rotate_prob = rotate_prob
+
+    def __call__(self, x):
+        # x is expected to be a Tensor of shape (C, D, H, W)
+        d, h, w = x.shape[1:]
+        new_h, new_w = self.output_size
+
+        # Random crop
+        top = random.randint(0, h - new_h)
+        left = random.randint(0, w - new_w)
+        x = x[:, :, top: top + new_h, left: left + new_w]
+
+        # Random flip
+        if random.random() < self.flip_prob:
+            x = torch.flip(x, dims=[-1])  # Flip along width
+
+        # Random rotation
+        if random.random() < self.rotate_prob:
+            x = torch.rot90(x, k=1, dims=[-2, -1])  # Rotate 90 degrees along H-W dimensions
+
+        return x
 
 
 def get_average_properties(structure: Structure) -> Tuple[float, float, float]:
@@ -57,47 +89,59 @@ def single_column_descriptor(structure: Structure) -> np.ndarray:
 class MlpDataset(Dataset):
 
     def __init__(self, data):
-        self.data = data
+        self.data = []
+        for structure, target in data:
+            features = torch.tensor(single_column_descriptor(structure), dtype=torch.float, device=DEVICE)
+            target = torch.tensor(target, dtype=torch.float, device=DEVICE)
+            self.data.append((features, target))
+
         scaler = get_scaler_for_dataset(self)
-        self.sf = StandardizeFeature(scaler)
+        sf = StandardizeFeature(scaler)
+        self.data = [(sf(item), t) for item, t in self.data]  # Standardize
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, item):
-        structure, target = self.data[item]
-        features = torch.tensor(single_column_descriptor(structure), dtype=torch.float, device=DEVICE)
-
+        features, target = self.data[item]
         if hasattr(self, 'sf'):
             features = self.sf(features)
-        return features, torch.tensor(target, dtype=torch.float, device=DEVICE)
+        return features, target
 
 
 class CnnDataset(Dataset):
 
-    def __init__(self, data, transform: Callable = None):
-        self.data = data
+    def __init__(self, data, picture_size, transform: Callable = None, scaler=None):
+        self.data = []
+        self.extra_features = []
+        # Prepare features, because generation is expensive
+        for structure, target in tqdm(data, desc='Processing structures', unit='structure'):
+            feature = structure_to_feature_v1(structure, n=5, picture_size=picture_size)  # transform to picture
+            target = torch.tensor(target)
+            self.data.append((feature, target))
+            self.extra_features.append(
+                torch.tensor(single_column_descriptor(structure))
+            )
+
         self.transform = transform
-        scaler = get_scaler_for_dataset(self)
-        self.sf = StandardizeFeature(scaler)
+        if scaler is None:
+            scaler = get_scaler_for_dataset(self)
+        self.scaler = scaler
+        if scaler:
+            sf = StandardizeFeature(scaler)
+            self.extra_features = [sf(item) for item in self.extra_features]  # Standardize
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, item):
-        structure, target = self.data[item]
-        structure: Structure
+        feature, target = self.data[item]
+        extra_features = self.extra_features[item]
 
-        feature = structure_to_feature_v1(structure, n=1)  # transform to picture
+        # Data augmentation
         if self.transform is not None:
             feature = self.transform(feature)
-
-        extra_features = torch.tensor(single_column_descriptor(structure), dtype=torch.float, device=DEVICE)
-
-        if hasattr(self, 'sf'):
-            extra_features = self.sf(extra_features)
-        target = torch.tensor(target, dtype=torch.float, device=DEVICE)
-        return feature.float(), extra_features, target
+        return feature.float(), extra_features.float(), target.float()
 
 
 def get_dataloader_v1(
@@ -106,47 +150,52 @@ def get_dataloader_v1(
         target: List[str],
         save_path: str = '',
         batch_size: int = 32,
-        train_val_test_ratio=(7, 2, 1),
-        **kwargs
+        train_val_test_ratio=(8, 2, 0),
+        target_size=(96, 96),
 ):
     # save == '' indicates no save
+    torch.manual_seed(SEED)
+    random.seed(SEED)
     assert len(train_val_test_ratio) == 3
     train_loader_path = f'{save_path}/train_loader.pth'
     val_loader_path = f'{save_path}/val_loader.pth'
     test_loader_path = f'{save_path}/test_loader.pth'
 
-    # transform = transforms.Compose([
-    #     transforms.RandomHorizontalFlip(),
-    #     transforms.RandomVerticalFlip(),
-    #     transforms.RandomRotation(15),
-    #     transforms.RandomResizedCrop(size=(96, 96), scale=(0.8, 0.8)),
-    # ])
-    # transform = ApplyTransformToEachLayer(transform)
-
-    if any(not os.path.exists(path) for path in[train_loader_path, val_loader_path, test_loader_path]):
+    picture_size = (target_size[0] * 2, target_size[1] * 2)
+    transform = RandomCropAndRotate3D(picture_size)
+    if any(not os.path.exists(path) for path in [train_loader_path, val_loader_path, test_loader_path]):
         data = get_data_from_db(db_path, select, target)
-        dataset = CnnDataset(data, transform=None)
-        total = sum(train_val_test_ratio)
-        train_val_test_ratio = tuple(map(lambda x: x / total, train_val_test_ratio))
-        train_dataset, val_dataset, test_dataset = random_split(dataset, train_val_test_ratio)
+        random.shuffle(data)
+
+        total_count = len(data)
+        train_count = int(total_count * train_val_test_ratio[0] / sum(train_val_test_ratio))
+        val_test_count = total_count - train_count
+        val_count = int(val_test_count * train_val_test_ratio[1] / (train_val_test_ratio[1] + train_val_test_ratio[2]))
+
+        # Scaler for train dataset only
+        train_dataset = CnnDataset(data[:train_count], picture_size, transform=transform)
+        scaler = train_dataset.scaler
+        save_path and joblib.dump(scaler, f'{save_path}/scaler.joblib')
+        val_dataset = CnnDataset(data[train_count:train_count + val_count], picture_size, scaler=scaler)
+        test_dataset = CnnDataset(data[train_count + val_count:], picture_size, scaler=scaler)
 
     if os.path.exists(train_loader_path):
         train_loader = torch.load(train_loader_path)
         print('Load train data successfully!')
     else:
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, **kwargs)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
         save_path and torch.save(train_loader, train_loader_path)
     if os.path.exists(val_loader_path):
         val_loader = torch.load(val_loader_path)
         print('Load validation data successfully!')
     else:
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, **kwargs)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         save_path and torch.save(val_loader, val_loader_path)
     if os.path.exists(test_loader_path):
         test_loader = torch.load(test_loader_path)
         print('Load test data successfully!')
     else:
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, **kwargs)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
         save_path and torch.save(test_loader, test_loader_path)
 
     return train_loader, val_loader, test_loader
@@ -160,9 +209,7 @@ def read_structure_file(filename: Union[str, Atoms]) -> Structure:
     """
     structure = None
     if isinstance(filename, str):
-        if filename.endswith('.cif') or filename == 'POSCAR':
-            structure = Structure.from_file(filename)
-        elif filename.endswith('.json'):
+        if filename.endswith('.json'):
             dc = json.loads(filename)
             lst1 = dc['cell']['array']['__ndarray__']
             cell = np.array(lst1[2], dtype=np.float64).reshape(lst1[0])
@@ -171,6 +218,8 @@ def read_structure_file(filename: Union[str, Atoms]) -> Structure:
             lst3 = dc['positions']['__ndarray__']
             positions = np.array(lst3[2], dtype=np.float64).reshape(lst3[0])
             structure = Structure(lattice=cell, species=elements, coords=positions)
+        else:
+            structure = Structure.from_file(filename)
     elif isinstance(filename, Atoms):
         structure = AseAtomsAdaptor.get_structure(atoms=filename)
 
@@ -179,17 +228,18 @@ def read_structure_file(filename: Union[str, Atoms]) -> Structure:
 
 
 def search_px_for_atom(x: float, y: float, radius: float, lattice_x: float, lattice_y: float, gamma: float,
-                       picture_size: tuple):
-    """ complexity: O(r^2) """
+                       picture_size: tuple, super_cell: bool = True):
+    """ complexity: O(r^2) super_cell=True complexity -> O(width * height) """
     height, width = picture_size
-    x, y, radius, lattice_x = math.floor(x), math.floor(y), math.floor(radius), math.floor(lattice_x)
-    res = [[], []]
-    lattice_y1, lattice_y2 = math.floor(lattice_y * radians_cos(gamma)), math.floor(lattice_y * radians_sin(gamma))
+    x, y, radius, lattice_x = int(x), int(y), int(radius), int(lattice_x)
+    origin = [[], []]
+    lattice_y1, lattice_y2 = int(lattice_y * radians_cos(gamma)), int(lattice_y * radians_sin(gamma))
     offset_y = (height - lattice_y2) >> 1
     for i in range(x - radius, x + radius + 1):
         for j in range(y - radius, y + radius + 1):
             if np.sqrt(np.square(i - x) + np.square(j - y)) > radius:
                 continue
+
             cross_product_l = np.cross(np.array([i, j]), np.array([lattice_y1, lattice_y2]))
             cross_product_r = np.cross(np.array([i - lattice_x, j]), np.array([lattice_y1, lattice_y2]))
             if cross_product_l < 0:  # point on the left side of the l-line
@@ -224,8 +274,28 @@ def search_px_for_atom(x: float, y: float, radius: float, lattice_x: float, latt
                     new_j = j
             if gamma > 90:
                 new_i += abs(lattice_y1)
-            res[0].append(new_i % width)
-            res[1].append((new_j + offset_y) % height)
+            origin[0].append(new_i % width)
+            origin[1].append(new_j % height)
+    if not super_cell:
+        return origin
+
+    res = [[], []]
+
+    extend_y = math.ceil(height / lattice_y2)
+    if lattice_y1 < 0:
+        extend_x = math.ceil((width - extend_y * lattice_y1) / lattice_x)
+    else:
+        extend_x = math.ceil(width / lattice_x)
+
+    for origin_x, origin_y in zip(*origin):
+        for i in range(lattice_y1 // lattice_x, extend_x):
+            for j in range(0, extend_y):
+                new_x = origin_x + i * lattice_x + j * lattice_y1
+                new_y = origin_y + j * lattice_y2
+                if 0 <= new_x < width and 0 <= new_y < height:
+                    res[0].append(new_x)
+                    res[1].append(new_y)
+
     return res
 
 
@@ -243,31 +313,31 @@ def structure_to_feature_v1(
         *,
         tolerance: float = 0.1,
         picture_size: tuple = (96, 96),
-        fill_type: str = 'all',
         is_train: bool = True,
+        real_scale: bool = True,
 ) -> torch.Tensor:
     """
     extract features for CNN
     v1: Divide the two-dimensional material into n layers based on the vacuum layer axis.
         Each atomic layer is filled with one layer.
-        If it is insufficient, the insufficient layer will be filled with zero.
-        If it is exceeded, the middle layer will be evenly pressed into one layer.
-        Single-layer filling takes the method of enlarging the lattice until it just fills the picture.
 
     :param structure
     :param n: layers
+    If it is insufficient, the insufficient layer will be filled with zero.
+    If it is exceeded, the middle layer will be evenly pressed into one layer.
     :param tolerance: if |c1 - c2| <= tolerance(unit Ang), then the atoms are considered to be in the same layer
     :param picture_size: height and width of picture
-    :param fill_type: all(<=radius) | border(~=radius)
     :param is_train
-    :return Tensor(3, n, 224, 224)
+    :param real_scale:
+     false: single-layer filling takes the method of enlarging the lattice until it just fills the picture.
+     true: 1px == 0.1Ang.
+    :return Tensor(3, n, width, height)
     """
     assert n > 0, 'Layers must be positive'
     if isinstance(structure, (str, Atoms)):
         structure = read_structure_file(structure)
     structure: Structure
     height, width = picture_size
-    return_matrix = np.zeros((3, n, height, width), dtype=np.float64)
 
     lattice = structure.lattice
     if all(abs(lattice.matrix[0][i]) > 1e-3 for i in (1, 0)):
@@ -285,12 +355,15 @@ def structure_to_feature_v1(
         lattice = Lattice(rotated_matrix)  # reset lattice newly
         structure = Structure(lattice, structure.species, structure.frac_coords)
 
-    # prepare for enlarging the lattice, equal proportion
-    scale_x = width / (lattice.a + np.abs(lattice.b * radians_cos(lattice.gamma)))
-    scale_y = height / (lattice.b * radians_sin(lattice.gamma))
-    scale = min(scale_x, scale_y)
+    if real_scale:
+        scale = 10
+    else:
+        # Prepare for enlarging the lattice, equal proportion
+        scale_x = width / (lattice.a + np.abs(lattice.b * radians_cos(lattice.gamma)))
+        scale_y = height / (lattice.b * radians_sin(lattice.gamma))
+        scale = min(scale_x, scale_y)
 
-    # get all layers, complexity O[atoms * (radius * scale)^2], max(radius * scale) == 224
+    # Get all layers, complexity O[atoms * (radius * scale)^2], max(radius * scale) == 224
     species, positions = structure.species, structure.cart_coords
     sorted_symbols_positions = sorted(zip(species, positions), key=lambda z_item: z_item[1][2])
     lattice_x, lattice_y = lattice.a * scale, lattice.b * scale
@@ -309,12 +382,12 @@ def structure_to_feature_v1(
             group -= 9
         elif group == 18:
             group = 8
-        # add the atoms
+        # Add the atoms, scale the px to range(0,1)
         pending = search_px_for_atom(x, y, radius, lattice_x, lattice_y, lattice.gamma, picture_size)
         cur = [
-            [electronegativity, pending[0], pending[1]],
-            [period, pending[0], pending[1]],
-            [group, pending[0], pending[1]],
+            [electronegativity / 4, pending[0], pending[1]],
+            [period / 6, pending[0], pending[1]],
+            [group / 18, pending[0], pending[1]],
         ]
         if z - prev_z > tolerance:
             unmerged_list.append([cur])
@@ -331,6 +404,7 @@ def structure_to_feature_v1(
         left -= tmp
         right += merge_num - tmp
 
+    return_matrix = np.zeros((3, n, height, width), dtype=np.float64)
     # fill the picture
     for idx, item in enumerate(unmerged_list):
         if left <= idx < right:
@@ -347,22 +421,21 @@ def structure_to_feature_v1(
     if merge_num > 1:
         return_matrix[left] /= merge_num
 
-    return torch.tensor(return_matrix, device=DEVICE, requires_grad=is_train)
+    return torch.tensor(return_matrix, requires_grad=is_train)
 
 
-def get_data_from_db(db: str, select: Dict, target: List[str]) -> List:
+def get_data_from_db(db: str, select: Dict, target: List[str], target_range=(0, 8)) -> List:
     db = connect(db)
     rows = db.select(**select)
-
     res = []
-    for row in rows:
+    for row in tqdm(rows, 'Loading data', unit='row'):
         row: AtomsRow
 
         atoms = row.toatoms()
         structure = read_structure_file(atoms)
         try:
             t = reduce(lambda x, y: x[y], target, row.data)
-            if t is None:
+            if t is None or t > target_range[1] or t < target_range[0]:
                 continue
             res.append([structure, t])
         except KeyError:
@@ -372,6 +445,31 @@ def get_data_from_db(db: str, select: Dict, target: List[str]) -> List:
     return res
 
 
+def calc_rdf(structure, dr=0.1, rmax=10.0):
+    import matplotlib.pyplot as plt
+    bins = np.arange(0, rmax + dr, dr)
+
+    if isinstance(structure, Structure):
+        structure = structure.to_ase_atoms()
+    d, d_len = get_distances(structure.positions, cell=structure.cell, pbc=True)
+    hist, bins = np.histogram(d_len[d_len > 0], bins=bins)
+
+    volume = structure.get_volume()
+    density = len(structure) / volume
+    rdf = hist / (4 * np.pi * (bins[:-1] ** 2) * dr * density * len(structure) + 1e-10)
+    rdf.astype(np.float32)
+
+    plt.figure(figsize=(8, 6), dpi=200)
+    plt.plot(bins[:-1], rdf)
+    plt.xlabel('Distance [Å]')
+    plt.ylabel('g(r)')
+    plt.show()
+
+    return rdf
+
+
 if __name__ == '__main__':
-    get_data_from_db('../datasets/c2db.db', {'has_asr_hse': True},
-                     ['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc'])
+    from plot_utils import plot_atoms
+
+    get_data_from_db('../datasets/c2db.db', select={},
+                     target=['results-asr.gs.json', 'kwargs', 'data', 'gap_nosoc'])

@@ -1,9 +1,13 @@
+from typing import Union, Tuple
+
 import torch
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
+
+from utils.eval_utils import predict_value
 
 custom_style = {
     'font.size': 16,
@@ -19,8 +23,7 @@ def get_features_and_targets(dataset, columns):
     dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
 
     assert len(dataset) > 0
-    for features, targets in dataloader:
-        break
+    features, targets = next(iter(dataloader))
 
     if isinstance(features, torch.Tensor):
         features = features.cpu()
@@ -66,11 +69,20 @@ def plot_losses(train_losses, val_losses):
     plt.close()
 
 
-def plot_violin(xx):
+def plot_violin(xx, title, xlabel):
     plt.figure(figsize=(10, 6), dpi=220)
     sns.violinplot(xx, cut=0)
-    plt.title('Distribution of Material Band Gaps')
-    plt.xlabel('Band Gap (eV)')
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.show()
+    plt.close()
+
+
+def plot_hist(xx, title, xlabel):
+    plt.figure(figsize=(10, 6), dpi=220)
+    sns.histplot(xx, kde=True)
+    plt.title(title)
+    plt.xlabel(xlabel)
     plt.show()
     plt.close()
 
@@ -95,6 +107,71 @@ def image_plot(image):
         axs[depth].axis('off')
 
     plt.tight_layout()
+    plt.show()
+    plt.close()
+
+
+def plot_atoms(return_matrix):
+    if isinstance(return_matrix, torch.Tensor):
+        return_matrix.requires_grad = False
+        return_matrix = return_matrix.detach().cpu().numpy()
+    n = return_matrix.shape[1]
+
+    # Get the figure and axes objects
+    # Layout is 3 rows (one for each feature) and n columns (one for each layer)
+    fig, axes = plt.subplots(3, n, figsize=(5 * n, 15), dpi=200)
+
+    # Titles for each channel (feature map)
+    titles = ['Electronegativity', 'Period', 'Group']
+
+    # Use nested loops to plot the matrices
+    for feature_idx in range(3):  # Loop through the number of features
+        for layer_idx in range(n):  # Loop through layers
+            ax = axes[feature_idx, layer_idx] if n > 1 else axes[feature_idx]
+            feature_map = return_matrix[feature_idx, layer_idx]
+            max_val = feature_map.max()  # Find the maximum value for normalization
+            normalized_matrix = feature_map / max_val if max_val > 0 else feature_map
+
+            # Display the image
+            ax.imshow(normalized_matrix, cmap='viridis')
+
+            # Only set titles for the top row
+            if feature_idx == 0:
+                ax.set_title(f'Layer {layer_idx + 1}')
+
+            ax.axis('off')  # Turn off axis labels
+
+    # Setting feature title for each row
+    for feature_idx, title in enumerate(titles):
+        if n == 1:
+            axes[feature_idx].set_ylabel(title, fontsize=12)
+        else:
+            axes[feature_idx, 0].set_ylabel(title, fontsize=12)
+
+    plt.tight_layout()
+    plt.show()
+    plt.close()
+
+
+def plot_true_predict_model(model, dataloader: Union[DataLoader, Tuple], model_load_path: str = None):
+    # If dataloader is tuple, then plot train and test prediction in a figure
+    if model_load_path is not None:
+        model.load_state_dict(torch.load(model_load_path)['model_state_dict'])
+
+    if not isinstance(dataloader, (tuple, list)):
+        dataloader = (dataloader,)
+
+    for item, label in zip(dataloader, ('train', 'test')):
+        if isinstance(item, str):
+            item = torch.load(item)
+
+        true_values, pred_values = predict_value(model, item)
+
+        plt.figure(figsize=(8, 8), dpi=220)
+        sns.scatterplot(x=true_values, y=pred_values, label=label, color='#ef8a43' if label == 'test' else 'blue')
+        plt.plot([true_values.min(), true_values.max()], [true_values.min(), true_values.max()], 'r--')
+    plt.xlabel('True Values')
+    plt.ylabel('Predicted Values')
     plt.show()
     plt.close()
 
@@ -132,20 +209,23 @@ if __name__ == '__main__':
 
     data = get_data_from_db(
         '../datasets/c2db.db',
-        select={'has_asr_hse': True},
-        target=['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc']
+        # select={'has_asr_hse': True},
+        # target=['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc']
+        select={},
+        target=['results-asr.gs.json', 'kwargs', 'data', 'gap_nosoc']
     )
-    dataset = MlpDataset(data)
-    feature_corr(
-        dataset,
-        columns=[
-            'density',
-            'electroneg',
-            'electronaff',
-            'ionenergy',
-            'radius',
-            'electrons',
-            'atoms',
-            'spacegroup'
-        ]
-    )
+    plot_hist(list(map(lambda x: x[1], data)), '', 'gap[eV]')
+    # dataset = MlpDataset(data)
+    # feature_corr(
+    #     dataset,
+    #     columns=[
+    #         'density',
+    #         'electroneg',
+    #         'electronaff',
+    #         'ionenergy',
+    #         'radius',
+    #         'electrons',
+    #         'atoms',
+    #         'spacegroup'
+    #     ]
+    # )
