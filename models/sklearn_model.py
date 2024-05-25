@@ -1,27 +1,29 @@
 import os
 import json
 
-import h2o
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from h2o.automl import H2OAutoML
+
 from sklearn.linear_model import Ridge
 from sklearn.svm import SVR
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.neighbors import KNeighborsRegressor, NearestNeighbors
+from sklearn.neighbors import KNeighborsRegressor
 from sklearn.manifold import TSNE
 from sklearn.pipeline import make_pipeline, Pipeline
-from sklearn.preprocessing import PolynomialFeatures
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler, minmax_scale
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.model_selection import cross_validate, train_test_split, GridSearchCV
+from sklearn.model_selection import cross_validate, train_test_split, GridSearchCV, KFold
+from sklearn.feature_selection import RFECV
+from xgboost import XGBRegressor
 
-from config import SEED, CPU_CORE
+from config import SEED
+from utils.data_utils import COLUMNS
 from utils.sklearn_utils import get_all_dataset
 
 custom_style = {
-    'font.size': 16,
+    'font.size': 20,
     'font.family': 'serif',
     'font.serif': ['Times New Roman'],
     'font.weight': 'bold',
@@ -30,51 +32,48 @@ custom_style = {
 plt.style.use(custom_style)
 
 
-def smoter(X, y, target_feature_range, n_samples=100, n_neighbors=8):
-    np.random.seed(SEED)
-    X, y = np.asarray(X), np.asarray(y)
-    indices = np.where((y >= target_feature_range[0]) & (y <= target_feature_range[1]))[0]
-    nn = NearestNeighbors(n_neighbors=n_neighbors + 1)
-    nn.fit(X[indices])
-    X_new = []
-    y_new = []
-
-    while len(X_new) < n_samples:
-        idx = np.random.choice(indices)
-        _, neighbors_idx = nn.kneighbors(X[idx].reshape(1, -1), return_distance=True)
-        neighbor_idx = np.random.choice(neighbors_idx[0][1:])
-        diff = X[indices][neighbor_idx] - X[idx]
-        gap = np.random.rand(1)
-
-        synth_sample_X = X[idx] + gap * diff
-        synth_sample_y = y[idx] + gap * (y[indices][neighbor_idx] - y[idx])
-
-        X_new.append(synth_sample_X)
-        y_new.append(synth_sample_y)
-
-    return np.vstack([X, np.array(X_new)]), np.concatenate([y, np.array(y_new).reshape(-1)])
-
-
 class SklearnPredictor:
 
-    def __init__(self, dataset):
+    def __init__(self, dataset, direct_data=False):
         self.dataset = dataset
         self.models = {
-            "Polynomial Ridge Regression": make_pipeline(
+            "Ridge Regression": make_pipeline(
+                StandardScaler(),
                 PolynomialFeatures(),
                 Ridge()
             ),
-            "K Neighbors Regressor": KNeighborsRegressor(n_jobs=CPU_CORE),
-            "Support Vector Machine": SVR(),
-            "Random Forest": RandomForestRegressor(n_jobs=CPU_CORE),
-            "Gradient Boosting": GradientBoostingRegressor(random_state=SEED),
+            "KNN": make_pipeline(
+                StandardScaler(),
+                KNeighborsRegressor(n_jobs=-1)
+            ),
+            "SVR": make_pipeline(
+                StandardScaler(),
+                SVR()
+            ),
+            "Random Forest": make_pipeline(
+                StandardScaler(),
+                RandomForestRegressor(n_jobs=-1)
+            ),
+            "GBDT": make_pipeline(
+                StandardScaler(),
+                GradientBoostingRegressor(random_state=SEED)
+            ),
+            "XGBoost": make_pipeline(
+                StandardScaler(),
+                XGBRegressor()
+            )
         }
         self.auto = None
         self.scores = {}
         self.train_preds = {}
         self.val_preds = {}
         self.X, self.y = None, None
+        if direct_data:
+            self.X, self.y = dataset[:, :-1], dataset[:, -1]
 
+        self.init_model()
+
+    def init_model(self):
         # init hyperparameters
         hyperparams_path = 'sklearn_hyperparams.json'
         if os.path.isfile(hyperparams_path):
@@ -96,10 +95,11 @@ class SklearnPredictor:
     def cross_validate(self):
         if self.X is None and self.y is None:
             self.X, self.y = get_all_dataset(self.dataset)
+
         X, y = self.X, self.y
         scoring_metrics = ['neg_mean_squared_error', 'neg_mean_absolute_error', 'r2']
         for name, model in self.models.items():
-            scores = cross_validate(model, X, y, cv=5, scoring=scoring_metrics, n_jobs=CPU_CORE)
+            scores = cross_validate(model, X, y, cv=5, scoring=scoring_metrics, n_jobs=-1)
 
             # Negative MSE and MAE are returned by cross_validate, so convert to positive
             mse_scores = -scores['test_neg_mean_squared_error']
@@ -147,15 +147,13 @@ class SklearnPredictor:
         plt.show()
         plt.close()
 
-    def train_and_evaluate(self, use_smoter: bool = False):
+    def train_and_evaluate(self):
         if self.X is None and self.y is None:
             self.X, self.y = get_all_dataset(self.dataset)
 
         models = self.models.copy()
         X, y = self.X, self.y
         X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=SEED)
-        if use_smoter:
-            X_train, y_train = smoter(X_train, y_train, target_feature_range=(6, 10))
         if self.auto is not None:
             models['AUTOML'] = self.auto
 
@@ -194,17 +192,18 @@ class SklearnPredictor:
 
             row, col = divmod(i, 3)
             sns.scatterplot(x=y_train, y=train_preds, ax=axs[row, col], label='train')
-            axs[row, col].plot([y_train.min(), y_train.max()], [y_train.min(), y_train.max()], '--r')
+            axs[row, col].plot([y_train.min() - 10, y_train.max() + 10], [y_train.min() - 10, y_train.max() + 10],
+                               '--r')
             axs[row, col].set_title(f'{name}')
             axs[row, col].set_xlabel('True Values')
             axs[row, col].set_ylabel('Predictions')
-            axs[row, col].set_ylim(0, 10)
-            axs[row, col].set_xlim(0, 10)
+            axs[row, col].set_ylim(0, 8)
+            axs[row, col].set_xlim(0, 8)
 
             sns.scatterplot(x=y_val, y=val_preds, ax=axs[row, col], color='#ef8a43', label='validation')
 
         plt.tight_layout()
-        plt.legend()
+        axs[0, 0].legend()
         plt.show()
         plt.close()
 
@@ -212,49 +211,118 @@ class SklearnPredictor:
         if self.X is None and self.y is None:
             self.X, self.y = get_all_dataset(self.dataset)
         param_grids = {
-            "Polynomial Ridge Regression": {
-                'polynomialfeatures__degree': [2, 3],
-                'ridge__alpha': [0.1, 1, 10]
+            "Ridge Regression": {
+                'ridge__alpha': [1, 5, 10],
+                'polynomialfeatures__degree': [1, 2]
             },
-            "K Neighbors Regressor": {
-                'n_neighbors': [3, 5, 7],
-                'leaf_size': [20, 30, 40]
+            "KNN": {
+                'kneighborsregressor__n_neighbors': [3, 5, 7],
+                'kneighborsregressor__leaf_size': [20, 30, 40],
+                'kneighborsregressor__weights': ['uniform', 'distance'],
+                'kneighborsregressor__metric': ['euclidean', 'manhattan', 'minkowski', 'chebyshev']
             },
-            "Support Vector Machine": {
-                'degree': [2, 3],
-                'C': [0.1, 1, 10],
-                'kernel': ['rbf', 'linear']
+            "SVR": {
+                'svr__kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
+                'svr__degree': [2, 3, 4],
+                'svr__C': [0.1, 1, 10],
             },
             "Random Forest": {
-                'n_estimators': [10, 50, 100, 200],
-                'max_depth': [None, 5, 10],
-                'min_samples_split': [2, 4, 6],
-                'min_samples_leaf': [1, 2, 4],
-                'max_features': ['auto', 'sqrt', 'log2'],
+                'randomforestregressor__n_estimators': [10, 100, 500],
+                'randomforestregressor__max_depth': [None, 5, 10],
+                'randomforestregressor__min_samples_split': [2, 4, 6],
+                'randomforestregressor__min_samples_leaf': [1, 2, 4],
+                'randomforestregressor__max_features': ['sqrt', 'log2'],
             },
-            "Gradient Boosting": {
-                'n_estimators': [10, 50, 100, 200],
-                'max_depth': [3, 5, 7],
-                'min_samples_split': [2, 4, 6],
-                'min_samples_leaf': [1, 2, 4],
-                'max_features': ['auto', 'sqrt', 'log2'],
-                'subsample': [0.9, 1.0, 1.1]
+            "GBDT": {
+                'gradientboostingregressor__n_estimators': [10, 100, 500],
+                'gradientboostingregressor__max_depth': [3, 5, 7],
+                'gradientboostingregressor__min_samples_split': [2, 4, 6],
+                'gradientboostingregressor__min_samples_leaf': [1, 2, 4],
+                'gradientboostingregressor__max_features': ['sqrt', 'log2'],
+                'gradientboostingregressor__subsample': [0.6, 0.8, 1.0]
+            },
+            "XGBoost": {
+                'xgbregressor__learning_rate': [0.01, 0.1, 1.0],
+                'xgbregressor__n_estimators': [50, 100, 500],
+                'xgbregressor__max_depth': [3, 6, 10],
+                'xgbregressor__min_child_weight': [1, 5],
+                'xgbregressor__gamma': [0, 0.1, 0.2],
+                'xgbregressor__subsample': [0.6, 0.8, 1.0],
+                'xgbregressor__reg_lambda': [1e-5, 1e-4]
             }
         }
 
         best_params = {}
         for name, model in self.models.items():
-            grid_search = GridSearchCV(model, param_grids[name], cv=cv, scoring='neg_mean_squared_error',
-                                       n_jobs=CPU_CORE)
+            grid_search = GridSearchCV(model, param_grids[name], cv=cv, scoring='r2', n_jobs=-1)
             grid_search.fit(self.X, self.y)
             best_params[name] = grid_search.best_params_
-            print(f"Best parameters for {name}: {grid_search.best_params_}, MSE: {-grid_search.best_score_:.3f}")
+            print(f"Best parameters for {name}: {grid_search.best_params_}, R2: {grid_search.best_score_:.3f}")
 
         # 将最佳参数写入文件
         with open('sklearn_hyperparams.json', 'w') as f:
             json.dump(best_params, f, indent=4)
 
+        self.init_model()
+
+    def feature_score(self, n: int = 30, feature_select: bool = True):
+        if self.X is None and self.y is None:
+            self.X, self.y = get_all_dataset(self.dataset)
+
+        pearson_corr = np.abs(np.corrcoef(self.X.T, self.y)[-1][:-1])
+
+        cv_strategy = KFold(n_splits=5)
+
+        estimator = self.models['Random Forest']
+        estimator.fit(self.X, self.y)
+        rf_importance = estimator.named_steps['randomforestregressor'].feature_importances_
+
+        selector = RFECV(estimator, cv=cv_strategy, step=1, scoring='r2', n_jobs=-1,
+                         importance_getter='named_steps.randomforestregressor.feature_importances_')
+        selector = selector.fit(self.X, self.y)
+        rfe_rank = selector.ranking_
+
+        normalized_pearson = minmax_scale(pearson_corr, feature_range=(0, 1))
+        normalized_rfe_rank = minmax_scale(1 / rfe_rank, feature_range=(0, 1))
+        normalized_rf_importance = minmax_scale(rf_importance, feature_range=(0, 1))
+
+        feature_scores = (normalized_pearson + normalized_rfe_rank + normalized_rf_importance) / 3
+
+        feature_scores_df = pd.DataFrame({
+            'Feature': COLUMNS,
+            'Pearson': normalized_pearson,
+            'RFE Rank': normalized_rfe_rank,
+            'RF Importance': normalized_rf_importance,
+            'Total Score': feature_scores
+        }).sort_values(by='Total Score', ascending=False)
+
+        if feature_select:
+            top_features = feature_scores_df.head(n)['Feature'].values
+            top_features_indices = [COLUMNS.index(feature) for feature in top_features]
+            print('top_features_indices:', top_features_indices)
+            self.X = self.X[:, top_features_indices]
+
+        sns.set(style="whitegrid")
+        plt.figure(figsize=(10, 8), dpi=220)
+
+        ax = sns.barplot(x="Total Score", y="Feature", data=feature_scores_df[:n], color="skyblue")
+
+        ax.set_title('Feature Importance Scores')
+        ax.set_xlabel('Score')
+        ax.set_ylabel('')
+        plt.tight_layout()
+        plt.show()
+        plt.close()
+
+        return feature_scores_df
+
     def automl(self):
+        try:
+            import h2o
+            from h2o.automl import H2OAutoML
+        except ImportError:
+            print('No ML software h2o')
+            return
         h2o.init()
         if self.X is None and self.y is None:
             self.X, self.y = get_all_dataset(self.dataset)
@@ -285,20 +353,20 @@ class SklearnPredictor:
             n_iter=n_iter,
             init='pca',
             learning_rate='auto',
-            n_jobs=CPU_CORE,
+            n_jobs=-1,
         ).fit_transform(self.X)
 
-        gap_categories = np.digitize(self.y, bins=[3, 6])
-        gap_labels = np.array(['0-3eV', '3-6eV', '>6eV'])
-        label_mapping = dict(zip(range(len(gap_labels)), gap_labels))
-        gap_category_labels = np.vectorize(label_mapping.get)(gap_categories)
-
-        plt.figure(figsize=(10, 10), dpi=220)
-        sns.scatterplot(x=X_tsne[:, 0], y=X_tsne[:, 1], hue=gap_category_labels, palette='Set1',
-                        hue_order=gap_labels)
+        plt.figure(figsize=(12, 10), dpi=220)
+        ax = plt.gca()
+        sns.scatterplot(x=X_tsne[:, 0], y=X_tsne[:, 1], hue=self.y, palette='viridis', legend=False, ax=ax)
         plt.title("t-SNE Visualization of Band Gaps")
         plt.xlabel("t-SNE Feature 1")
         plt.ylabel("t-SNE Feature 2")
+
+        norm = plt.Normalize(self.y.min(), self.y.max())
+        sm = plt.cm.ScalarMappable(cmap="viridis", norm=norm)
+        sm.set_array([])
+        plt.colorbar(sm, ax=ax)
 
         plt.show()
         plt.close()
@@ -313,11 +381,89 @@ class SklearnPredictor:
 if __name__ == '__main__':
     from utils.data_utils import MlpDataset, get_data_from_db
 
-    data = get_data_from_db(
+    data, extra = get_data_from_db(
         '../datasets/c2db.db',
-        select={'has_asr_hse': True},
-        target=['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc']
+        {'selection': 'gap'},
+        'gap',
+        'efermi',
+        'energy',
+        'hform',
+        'ehull',
+        'evac'
     )
-    dataset = MlpDataset(data)
+    dataset = MlpDataset(data, extra)
     sp = SklearnPredictor(dataset)
-    sp.automl()
+    # sp.feature_score(n=15)
+    # sp.grid_search_cv(5)
+    # sp.cross_validate()
+    sp.train_and_evaluate()
+    sp.tsne()
+    # from utils.plot_utils import feature_corr, feature_box
+    #
+    # data = pd.read_csv('pce.csv')
+    #
+    # # features_df = data.apply(lambda row: get_features_from_components(row['elements']), axis=1)
+    # # data = pd.concat([data, features_df], axis=1)
+    # # data = data.groupby('elements', as_index=False).mean()
+    # data.drop(['elements'], axis=1, inplace=True)
+    #
+    # y = data.iloc[:, 0:1].to_numpy(np.float32)
+    # data.drop('PCE', axis=1, inplace=True)
+    # # data.drop(['NIR wave laser(nm)', 'NIR intensity(W/cm2)', 'NIR time(min)'], inplace=True, axis=1)
+    # # data.drop(['Decoration1', 'Decoration2', 'Decoration3'], inplace=True, axis=1)
+    #
+    # # columns_to_encode = ['Decoration1', 'Decoration2', 'Decoration3']
+    # # for column in columns_to_encode:
+    # #     data[column] = pd.factorize(data[column])[0]
+    # data = pd.get_dummies(data, columns=['Decoration1', 'Decoration2', 'Decoration3'])
+    # data.dropna(inplace=True)
+    # print(data.shape)
+    # X = data.to_numpy(np.float32)
+    # scaler = StandardScaler()
+    # X = scaler.fit_transform(X)
+    # from sklearn.decomposition import PCA
+    #
+    # pca = PCA(n_components=10)
+    # X = pca.fit_transform(X)
+    #
+    # from torch.utils.data import Dataset
+    #
+    #
+    # class MlpDataset(Dataset):
+    #
+    #     def __init__(self, data):
+    #         self.data = data
+    #
+    #     def __len__(self):
+    #         return len(self.data)
+    #
+    #     def __getitem__(self, item):
+    #         features, target = self.data[item]
+    #         return features, target
+    # import torch
+    # from models.base_model import MLP, initialize_weights
+    # from utils.training_utils import train_and_eval
+    #
+    # dataset = MlpDataset([[i, j] for i, j in zip(X, y)])
+    # torch.manual_seed(8)
+    # train, val = torch.utils.data.random_split(dataset, (0.8, 0.2))
+    #
+    # model = MLP(10)
+    # initialize_weights(model)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=1e-4, weight_decay=0.1, momentum=0.9)
+    # criterion = torch.nn.L1Loss()
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, 200, 0)
+    #
+    # train = torch.utils.data.DataLoader(train, batch_size=1)
+    # val = torch.utils.data.DataLoader(val, batch_size=8)
+    # train_and_eval(model, train, val, criterion, optimizer, scheduler=scheduler, num_epochs=200)
+    # # feature_box(np.hstack([X, y]))
+    # # feature_corr(np.hstack([X, y]))
+    #
+    # # feature_box(np.hstack([X, y]))
+    # sp = SklearnPredictor(np.hstack([X, y]), True)
+    # # sp.feature_selection()
+    # # sp.grid_search_cv(5)
+    # # sp.cross_validate()
+    # # sp.train_and_evaluate()
+    # # sp.tsne()

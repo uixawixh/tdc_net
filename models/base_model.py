@@ -31,18 +31,18 @@ class MLP(nn.Module):
 
     def __init__(self, num_features):
         super().__init__()
-        self.input_fc = nn.Linear(num_features, 32)
-        self.hidden = nn.Linear(32, 128)
-        self.output_fc = nn.Linear(128, 1)
+        self.input_fc = nn.Linear(num_features, 512)
+        self.hidden = nn.Linear(512, 2048)
+        self.output_fc = nn.Linear(2048, 1)
         self.dropout = nn.Dropout()
 
     def forward(self, x):
-        out = F.mish(self.input_fc(x))
+        out = F.relu(self.input_fc(x))
         out = self.dropout(out)
-        out = F.mish(self.hidden(out))
+        out = F.relu(self.hidden(out))
         out = self.dropout(out)
         out = self.output_fc(out)
-        return out
+        return F.relu6(out) * 8 / 6
 
 
 class HierarchicalModel(nn.Module):
@@ -82,22 +82,24 @@ class HierarchicalModel(nn.Module):
 if __name__ == '__main__':
     from utils.data_utils import MlpDataset, get_data_from_db
     from utils.training_utils import train_and_eval
+    from utils.plot_utils import plot_true_predict_model
 
     data = get_data_from_db(
         '../datasets/c2db.db',
         select={'has_asr_hse': True},
-        target=['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc']
+        target=['results-asr.hse.json', 'kwargs', 'data', 'gap']
     )
     dataset = MlpDataset(data)
-
+    torch.manual_seed(1007)
     train, val = torch.utils.data.random_split(dataset, (0.8, 0.2))
 
-    model = MLP(8)
+    model = MLP(76)
     initialize_weights(model)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    criterion = torch.nn.HuberLoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 20, 1, 0)
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-3, weight_decay=0.01)
+    criterion = torch.nn.MSELoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 20, 4, 0)
 
-    train = torch.utils.data.DataLoader(train, batch_size=32)
-    val = torch.utils.data.DataLoader(val, batch_size=32)
-    train_and_eval(model, train, val, criterion, optimizer, scheduler=scheduler, num_epochs=1000)
+    train = torch.utils.data.DataLoader(train, batch_size=64)
+    val = torch.utils.data.DataLoader(val, batch_size=64)
+    train_and_eval(model, train, val, criterion, optimizer, scheduler=scheduler, num_epochs=300)
+    plot_true_predict_model(model, (train, val))

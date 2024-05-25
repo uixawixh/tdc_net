@@ -30,7 +30,7 @@ def evaluate_loss(
             labels = datas[-1].to(DEVICE)
             outputs = model(*features)
 
-            if len(outputs) == 2:
+            if isinstance(outputs, tuple) and len(outputs) == 2:
                 # Calculate mixed loss
                 criterion_classification, criterion_regression = criterion
                 predicted_logits, outputs = outputs
@@ -84,8 +84,13 @@ def predict_value(model, dataloader) -> Tuple[np.ndarray, np.ndarray]:
         for data in dataloader:
             inputs = data[:-1]
             labels = data[-1]
-
-            outputs = model(*inputs) if isinstance(inputs, (list, tuple)) else model(inputs)
+            if isinstance(inputs, (list, tuple)):
+                for idx, item in enumerate(inputs):
+                    inputs[idx] = item.to(DEVICE)
+                outputs = model(*inputs)
+            else:
+                inputs = inputs.to(DEVICE)
+                outputs = model(inputs)
 
             outputs = outputs.cpu().numpy()
             labels = labels.cpu().numpy()

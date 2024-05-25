@@ -96,7 +96,7 @@ def train_and_eval(
         num_epochs: int = 30,
         *,
         classify_boundaries: Tuple = (2, 4, 6)
-):
+) -> str:
     assert start_epoch >= 1
     train_losses, val_losses = [], []
     classify_boundaries = torch.tensor(classify_boundaries, device=DEVICE, dtype=torch.float)
@@ -112,10 +112,11 @@ def train_and_eval(
 
     model = model.to(DEVICE)
     model.train()
-    length = len(train_loader) // 10
+    length = max(len(train_loader) // 10, 1)
 
     step = 0
     best_score = 0
+    best_model_pth = ''
     for epoch in range(start_epoch, num_epochs + 1):
         train_loss = 0
         start_time = time.time()
@@ -150,7 +151,6 @@ def train_and_eval(
         train_loss /= len(train_loader)
         train_time = time.time() - start_time
         val_loss, r2, mae, rmse = evaluate_loss(model, val_loader, criterion, classify_boundaries, (1, 0.01))
-        best_score = max(r2, best_score)
         train_losses.append(train_loss)
         val_losses.append(val_loss)
         print(
@@ -162,7 +162,7 @@ def train_and_eval(
         scheduler and scheduler.step()
 
         step += 1
-        checkpoint_path and step % checkpoint_step == 0 and save_checkpoint(
+        do_saving = lambda: save_checkpoint(
             epoch=epoch,
             model=model,
             optimizer=optimizer,
@@ -172,9 +172,17 @@ def train_and_eval(
             scheduler=scheduler,
             filename=f'{checkpoint_path}/model_epoch_{epoch}.ckpt'
         )
-    # print(train_losses, val_losses)
+        checkpoint_path and step % checkpoint_step == 0 and do_saving()
+        if best_score < r2:
+            if checkpoint_path:
+                os.path.exists(best_model_pth) and os.remove(best_model_pth)
+                do_saving()
+                best_model_pth = f'{checkpoint_path}/model_epoch_{epoch}.ckpt'
+            best_score = r2
+
     print('Validation best Score: ', best_score)
     plot_losses(train_losses, val_losses)
+    return best_model_pth
 
 
 if __name__ == '__main__':

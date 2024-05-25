@@ -2,7 +2,7 @@ import torch.nn as nn
 
 
 class AttentionLayer(nn.Module):
-    def __init__(self, input_dim, reduction=4):
+    def __init__(self, input_dim, reduction=2):
         super(AttentionLayer, self).__init__()
         self.attention_network = nn.Sequential(
             nn.Linear(input_dim, input_dim // reduction),

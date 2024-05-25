@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from utils.eval_utils import predict_value
 
@@ -20,17 +20,19 @@ plt.style.use(custom_style)
 
 
 def get_features_and_targets(dataset, columns):
-    dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
-
     assert len(dataset) > 0
-    features, targets = next(iter(dataloader))
+    if isinstance(dataset, Dataset):
+        dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
+        features, targets = next(iter(dataloader))
+    else:
+        features, targets = dataset[:, :-1], dataset[:, -1]
 
     if isinstance(features, torch.Tensor):
-        features = features.cpu()
+        features = features.cpu().numpy()
     if isinstance(targets, torch.Tensor):
-        targets = targets.cpu()
-    df = pd.DataFrame(features.numpy(), columns=columns)
-    df['target'] = targets.numpy()
+        targets = targets.cpu().numpy()
+    df = pd.DataFrame(features, columns=columns)
+    df['target'] = targets
     return df
 
 
@@ -39,7 +41,7 @@ def feature_box(dataset, columns=None):
     df_numeric = df.select_dtypes(include=[float, int])
 
     plt.figure(figsize=(12, 6), dpi=240)
-    plt.boxplot(df_numeric.values, labels=df_numeric.columns, patch_artist=True)  # 使用patch_artist填充箱体颜色
+    plt.boxplot(df_numeric.values, labels=df_numeric.columns, patch_artist=True)
     plt.xticks(rotation=45)
     plt.title('Feature Distribution Boxplots')
     plt.ylabel('Value')
@@ -70,6 +72,8 @@ def plot_losses(train_losses, val_losses):
 
 
 def plot_violin(xx, title, xlabel):
+    if isinstance(xx, torch.Tensor):
+        xx = xx.cpu().numpy()
     plt.figure(figsize=(10, 6), dpi=220)
     sns.violinplot(xx, cut=0)
     plt.title(title)
@@ -79,6 +83,8 @@ def plot_violin(xx, title, xlabel):
 
 
 def plot_hist(xx, title, xlabel):
+    if isinstance(xx, torch.Tensor):
+        xx = xx.cpu().numpy()
     plt.figure(figsize=(10, 6), dpi=220)
     sns.histplot(xx, kde=True)
     plt.title(title)
@@ -161,17 +167,20 @@ def plot_true_predict_model(model, dataloader: Union[DataLoader, Tuple], model_l
     if not isinstance(dataloader, (tuple, list)):
         dataloader = (dataloader,)
 
+    plt.figure(figsize=(8, 8), dpi=220)
     for item, label in zip(dataloader, ('train', 'test')):
         if isinstance(item, str):
             item = torch.load(item)
 
         true_values, pred_values = predict_value(model, item)
 
-        plt.figure(figsize=(8, 8), dpi=220)
         sns.scatterplot(x=true_values, y=pred_values, label=label, color='#ef8a43' if label == 'test' else 'blue')
         plt.plot([true_values.min(), true_values.max()], [true_values.min(), true_values.max()], 'r--')
     plt.xlabel('True Values')
     plt.ylabel('Predicted Values')
+    plt.grid(True)
+    plt.xlim(0, 8)
+    plt.ylim(0, 8)
     plt.show()
     plt.close()
 
@@ -179,7 +188,7 @@ def plot_true_predict_model(model, dataloader: Union[DataLoader, Tuple], model_l
 def feature_corr(dataset, columns=None):
     """dataset must be single column feature."""
     df = get_features_and_targets(dataset, columns)
-    correlation_matrix = df.corr()
+    correlation_matrix = df.corr(method='spearman')
 
     # Generate a mask for the upper triangle
     mask = np.triu(np.ones_like(correlation_matrix, dtype=bool))
@@ -209,23 +218,15 @@ if __name__ == '__main__':
 
     data = get_data_from_db(
         '../datasets/c2db.db',
-        # select={'has_asr_hse': True},
-        # target=['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc']
-        select={},
-        target=['results-asr.gs.json', 'kwargs', 'data', 'gap_nosoc']
+        select={'has_asr_hse': True},
+        target=['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc']
+        # select={},
+        # target=['results-asr.gs.json', 'kwargs', 'data', 'gap_nosoc']
     )
-    plot_hist(list(map(lambda x: x[1], data)), '', 'gap[eV]')
-    # dataset = MlpDataset(data)
-    # feature_corr(
-    #     dataset,
-    #     columns=[
-    #         'density',
-    #         'electroneg',
-    #         'electronaff',
-    #         'ionenergy',
-    #         'radius',
-    #         'electrons',
-    #         'atoms',
-    #         'spacegroup'
-    #     ]
-    # )
+    # plot_hist(list(map(lambda x: x[1], data)), '', 'gap[eV]')
+    dataset = MlpDataset(data)
+    plot_hist(
+        np.hstack([i.cpu().numpy() for _, i in dataset]),
+        '',
+        'gap [eV]'
+    )

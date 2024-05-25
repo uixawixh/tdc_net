@@ -12,7 +12,7 @@ from models.modules import AttentionLayer, SEBlock, SpatialAttention3D
 class BasicBlock3D(nn.Module):
     expansion = 1
 
-    def __init__(self, in_planes, planes, stride=1):
+    def __init__(self, in_planes, planes, stride=1, channel_attention=False):
         super().__init__()
 
         self.conv1 = nn.Conv3d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -20,6 +20,9 @@ class BasicBlock3D(nn.Module):
 
         self.conv2 = nn.Conv3d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm3d(planes)
+
+        self.se = SEBlock(planes * self.expansion)
+        self.channel_attention = channel_attention
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes * self.expansion:
@@ -31,6 +34,8 @@ class BasicBlock3D(nn.Module):
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)), inplace=True)
         out = self.bn2(self.conv2(out))
+        if self.channel_attention:
+            out = self.se(out)
         out += self.shortcut(x)
         out = F.relu(out, inplace=True)
         return out
@@ -80,6 +85,7 @@ class ResNet3D(nn.Module):
             in_channels=3,
             channel_attention=False,
             spatial_attention=False,
+            out_dim=128,
     ):
         super().__init__()
         self.in_planes = 64
@@ -96,16 +102,21 @@ class ResNet3D(nn.Module):
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
 
-        # Regression head
-        self.avg_pool = nn.AdaptiveAvgPool3d((1, 1, 1))
-        self.flatten = nn.Flatten()
+        # Features head
+        self.classifier = nn.Sequential(
+            nn.Dropout(),
+            nn.Conv3d(512 * block.expansion, out_dim, kernel_size=1),
+            nn.LeakyReLU(inplace=True),
+            nn.AdaptiveAvgPool3d((1, 1, 1)),
+            nn.Flatten()
+        )
 
     def _make_layer(self, block, planes, num_blocks, stride):
-        layers = [block(self.in_planes, planes, stride)]
+        layers = [block(self.in_planes, planes, stride, self.channel_attention)]
 
         self.in_planes = planes * block.expansion
         for _ in range(1, num_blocks):
-            layers.append(block(self.in_planes, planes, 1))
+            layers.append(block(self.in_planes, planes, 1, self.channel_attention))
 
         if self.spatial_attention:
             sa = SpatialAttention3D(self.in_planes, kernel_size=(5, 1, 1))  # depth attention
@@ -118,8 +129,7 @@ class ResNet3D(nn.Module):
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
-        out = self.avg_pool(out)
-        out = self.flatten(out)
+        out = self.classifier(out)
 
         return out
 
@@ -171,33 +181,42 @@ class VGG3D(nn.Module):
 
 
 class FireModule3D(nn.Module):
-    def __init__(self, in_channels, squeeze_channels, expand1x1x1_channels, expand3x3x3_channels):
+    def __init__(self, in_channels, squeeze_channels, expand1x1x1_channels, expand3x3x3_channels,
+                 channel_attention=False):
         super().__init__()
+        self.channel_attention = channel_attention
+
         self.squeeze = nn.Conv3d(in_channels, squeeze_channels, kernel_size=1)
         self.expand1x1x1 = nn.Conv3d(squeeze_channels, expand1x1x1_channels, kernel_size=1)
         self.expand3x3x3 = nn.Conv3d(squeeze_channels, expand3x3x3_channels, kernel_size=3, padding=1)
 
+        self.se_block = SEBlock(squeeze_channels + expand1x1x1_channels + expand3x3x3_channels)
+
     def forward(self, x):
-        x = F.relu(self.squeeze(x), inplace=True)
-        return torch.cat([
-            F.relu(self.expand1x1x1(x), inplace=True),
-            F.relu(self.expand3x3x3(x), inplace=True)
+        out = F.relu(self.squeeze(x), inplace=True)
+        out = torch.cat([
+            F.relu(self.expand1x1x1(out), inplace=True),
+            F.relu(self.expand3x3x3(out), inplace=True)
         ], 1)
+
+        if self.channel_attention:
+            out = self.se_block(out)
+        return out
 
 
 class SqueezeNet3D(nn.Module):
-    def __init__(self, in_channels=3, out_dim=128):
-        super(SqueezeNet3D, self).__init__()
+    def __init__(self, in_channels=3, out_dim=128, channel_attention=False):
+        super().__init__()
         self.features = nn.Sequential(
             nn.Conv3d(in_channels, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.MaxPool3d(kernel_size=3, stride=2, padding=(1, 0, 0), ceil_mode=True),
+            nn.AvgPool3d(kernel_size=2, stride=2, padding=(1, 0, 0), ceil_mode=True),
             FireModule3D(64, 16, 64, 64),
             FireModule3D(128, 16, 64, 64),
-            nn.MaxPool3d(kernel_size=3, stride=2, padding=(1, 0, 0), ceil_mode=True),
+            nn.AvgPool3d(kernel_size=2, stride=2, padding=(1, 0, 0), ceil_mode=True),
             FireModule3D(128, 32, 128, 128),
             FireModule3D(256, 32, 128, 128),
-            nn.MaxPool3d(kernel_size=3, stride=2, padding=(1, 0, 0), ceil_mode=True),
+            nn.AvgPool3d(kernel_size=2, stride=2, padding=(1, 0, 0), ceil_mode=True),
             FireModule3D(256, 48, 192, 192),
             FireModule3D(384, 48, 192, 192),
             FireModule3D(384, 64, 256, 256),
@@ -235,24 +254,24 @@ class TDCNet(nn.Module):
         self.prior_func = prior_func
 
         # FNN layer
-        self.feat_fc = nn.Linear(num_features, 32)
-        self.hidden_fc = nn.Linear(32, 128)
-
-        self.attention_layer = AttentionLayer(128 + cnn_features)
-        self.output_fc = nn.Linear(128 + cnn_features, output_dim)
+        self.feat_fc = nn.Linear(num_features + cnn_features, 512)
+        self.hidden_fc1 = nn.Linear(512, 2048)
+        self.output_fc = nn.Linear(2048, output_dim)
+        self.attention_layer_in = AttentionLayer(num_features + cnn_features)
 
     def forward(self, x, features):
-        out = F.dropout(F.mish(self.feat_fc(features)))
-        out = F.dropout(F.mish(self.hidden_fc(out)))
-
         feat_out = self.cnn_model(x)
-        out = torch.cat((out, feat_out), dim=1)
+        out = torch.cat((features, feat_out), dim=1)
         if self.mlp_attention:
-            out = self.attention_layer(out)
+            out = self.attention_layer_in(out)
         else:
             out = out
-        out = self.output_fc(out)
 
+        out = F.leaky_relu(self.feat_fc(out))
+        out = F.dropout(out)
+        out = F.leaky_relu(self.hidden_fc1(out))
+        out = F.dropout(out)
+        out = self.output_fc(out)
         if self.prior_func is not None:
             out = self.prior_func(out)
         return out
@@ -310,10 +329,13 @@ def squeezed_net(
         in_channels: int = 3,
         output_dim=1,
         prior_func: Callable = None,
+        cnn_props: dict = None,
         **kwargs
 ):
-    cnn_model = SqueezeNet3D(in_channels)
-    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func)
+    if cnn_props is None:
+        cnn_props = dict()
+    cnn_model = SqueezeNet3D(in_channels, **cnn_props)
+    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 def resnet18(
@@ -324,7 +346,7 @@ def resnet18(
         **kwargs
 ):
     cnn_model = ResNet3D(BasicBlock3D, num_blocks=[3, 4, 6, 3], in_channels=in_channels)
-    return TDCNet(512 * BasicBlock3D.expansion, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
+    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 def resnet34(
@@ -335,7 +357,7 @@ def resnet34(
         **kwargs
 ):
     cnn_model = ResNet3D(BasicBlock3D, num_blocks=[3, 4, 14, 3], in_channels=in_channels)
-    return TDCNet(512 * BasicBlock3D.expansion, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
+    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 def resnet50(
@@ -346,7 +368,7 @@ def resnet50(
         **kwargs
 ):
     cnn_model = ResNet3D(Bottleneck3D, num_blocks=[3, 4, 6, 3], in_channels=in_channels)
-    return TDCNet(512 * Bottleneck3D.expansion, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
+    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 def senet50(
@@ -357,7 +379,7 @@ def senet50(
         **kwargs
 ):
     cnn_model = ResNet3D(Bottleneck3D, num_blocks=[3, 4, 6, 3], in_channels=in_channels, channel_attention=True)
-    return TDCNet(512 * Bottleneck3D.expansion, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
+    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 def resnet101(
@@ -368,7 +390,7 @@ def resnet101(
         **kwargs
 ):
     cnn_model = ResNet3D(Bottleneck3D, num_blocks=[3, 4, 23, 3], in_channels=in_channels)
-    return TDCNet(512 * Bottleneck3D.expansion, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
+    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 def senet101(
@@ -379,7 +401,7 @@ def senet101(
         **kwargs
 ):
     cnn_model = ResNet3D(Bottleneck3D, num_blocks=[3, 4, 23, 3], in_channels=in_channels, channel_attention=True)
-    return TDCNet(512 * Bottleneck3D.expansion, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
+    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 def resnet152(
@@ -390,7 +412,7 @@ def resnet152(
         **kwargs
 ):
     cnn_model = ResNet3D(Bottleneck3D, num_blocks=[3, 4, 40, 3], in_channels=in_channels)
-    return TDCNet(512 * Bottleneck3D.expansion, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
+    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 def senet152(
@@ -401,33 +423,34 @@ def senet152(
         **kwargs
 ):
     cnn_model = ResNet3D(Bottleneck3D, num_blocks=[3, 4, 40, 3], in_channels=in_channels, channel_attention=True)
-    return TDCNet(512 * Bottleneck3D.expansion, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
+    return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 if __name__ == '__main__':
     from base_model import initialize_weights
     from utils.training_utils import train_and_eval
     from utils.data_utils import get_dataloader_v1
+    from utils.plot_utils import plot_true_predict_model
 
     # Prior 0 <= x <= 10, but need to avoid node dead
     model = squeezed_net(
-        num_features=8,
-        prior_func=F.leaky_relu
+        num_features=76 + 5,
+        prior_func=lambda x: F.relu6(x) * 8 / 6
     )
     initialize_weights(model)
     train_loader, val_loader, test_loader = get_dataloader_v1(
         '../datasets/c2db.db',
-        save_path='../datasets/hse_set_augment',
-        batch_size=16,
-        # select={},
-        # target=['results-asr.gs.json', 'kwargs', 'data', 'gap_nosoc']
-        select={'has_asr_hse': True},
-        target=['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc']
+        save_path='../datasets/pbe_set_e',
+        batch_size=64,
+        select={'selection': 'gap'},
+        target='gap',
+        extra_features=['efermi', 'energy', 'hform', 'ehull', 'evac']
     )
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-4, weight_decay=0.01, momentum=0.9)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=4, eta_min=0)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=0.01)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 20, 2, 0)
     criterion = nn.MSELoss()
 
-    train_and_eval(model, train_loader, val_loader, criterion, optimizer, scheduler=scheduler,
-                   checkpoint_path='../checkpoints', start_epoch=1, num_epochs=450, checkpoint_step=10)
+    best_model_pth = train_and_eval(model, train_loader, val_loader, criterion, optimizer, scheduler=scheduler,
+                                    checkpoint_path='../checkpoints', start_epoch=1, num_epochs=300, checkpoint_step=10)
+    plot_true_predict_model(model, (train_loader, val_loader), '../checkpoints/model_epoch_289.ckpt')

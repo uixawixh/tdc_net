@@ -4,12 +4,14 @@ import os
 import math
 import json
 import random
+from itertools import chain
 from functools import reduce
 from typing import Union, List, Callable, Dict, Tuple
 
 import torch
 import joblib
 import numpy as np
+from scipy import stats
 from tqdm import tqdm
 from ase import Atoms
 from ase.db import connect
@@ -17,12 +19,56 @@ from ase.db.core import AtomsRow
 from ase.geometry import get_distances
 from pymatgen.core import Structure, Lattice, Element
 from pymatgen.io.ase import AseAtomsAdaptor
-from torchvision import transforms
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset
 
 from config import DEVICE
 from utils.sklearn_utils import StandardizeFeature, get_scaler_for_dataset
 from config import SEED
+
+MASS = 0
+ATOMIC_RADII = 1
+ELECTRON_NEG = 2
+IONIZATION_ENERGIES = 3
+ELECTRON_AFFINITIES = 4
+IONIC_RADII = 5
+VALENCE = 6
+CORE_CHARGE = 7
+SHELL = 8
+SP_E = 9
+DF_E = 10
+
+COLUMNS = []
+for idx, name in enumerate([
+    'MASS',
+    'ATOMIC_RADII',
+    'ELECTRON_NEG',
+    'IONIZATION_ENERGIES',
+    'ELECTRON_AFFINITIES',
+    'IONIC_RADII',
+    'VALENCE',
+    'CORE_CHARGE',
+    'SHELL',
+    'SP_E',
+    'DF_E',
+]):
+    COLUMNS.append(name + '_MEAN')
+    COLUMNS.append(name + '_STD')
+    COLUMNS.append(name + '_RANGE')
+    COLUMNS.append(name + '_MAX')
+    COLUMNS.append(name + '_MIN')
+    COLUMNS.append(name + '_MODE')
+COLUMNS += [
+    'ELEMENT_NUM',
+    'L2_NORM',
+    'N_ATOMS',
+    'SPACE_GROUP',
+    'GAMMA',
+    'A',
+    'B',
+    'C',
+    'VOLUME',
+    'DENSITY'
+]
 
 
 class RandomCropAndRotate3D:
@@ -53,46 +99,102 @@ class RandomCropAndRotate3D:
         return x
 
 
-def get_average_properties(structure: Structure) -> Tuple[float, float, float]:
-    electron_affinities = []
-    ionization_energies = []
-    covalent_radii = []
+def get_properties(structure: Structure) -> np.ndarray:
+    """Get all properties from component -> len(11 * 6 + 3)"""
+    overall = [[] for _ in range(11)]
 
     for species in structure.species:
         element = Element(species.symbol)
-        electron_affinities.append(element.electron_affinity)
-        ionization_energies.append(element.ionization_energies[1] if len(element.ionization_energies) > 1 else 0)
-        covalent_radii.append(element.atomic_radius)
+        overall[MASS].append(element.atomic_mass)
+        overall[ATOMIC_RADII].append(element.atomic_radius)
+        overall[ELECTRON_NEG].append(element.X)
+        overall[IONIZATION_ENERGIES].append(
+            element.ionization_energies[1] if len(element.ionization_energies) > 1 else 0)
+        overall[ELECTRON_AFFINITIES].append(element.electron_affinity)
+        overall[IONIC_RADII].append(element.average_ionic_radius)
+        try:
+            overall[VALENCE].append(element.valence[1])
+        except ValueError:
+            overall[VALENCE].append(0)
+        overall[CORE_CHARGE].append(element.Z)
+        overall[SHELL].append(element.row)
+        sp = df = 0
+        for _, orbit, num in element.full_electronic_structure:
+            sp += (orbit in 'sp') * num
+            df += (orbit in 'df') * num
+        overall[SP_E].append(sp)
+        overall[DF_E].append(df)
+    statistical_features = np.array(
+        list(chain.from_iterable(map(lambda item: get_statistical_features(item), overall))), dtype=np.float32
+    )
 
-    avg_electron_affinity = sum(electron_affinities) / len(electron_affinities)
-    avg_ionization_energy = sum(ionization_energies) / len(ionization_energies)
-    avg_covalent_radius = sum(covalent_radii) / len(covalent_radii)
+    elements_num = structure.n_elems
+    composition = structure.composition
+    total_amount = sum(composition.values())
+    molar_fractions = [amount / total_amount for amount in composition.values()]
+    l2_norm = np.linalg.norm(molar_fractions, 2)
+    return np.hstack([statistical_features, [elements_num, l2_norm, structure.composition.num_atoms]], dtype=np.float32)
 
-    return avg_electron_affinity, avg_ionization_energy, avg_covalent_radius
+
+def get_statistical_features(elements: List[float]) -> Tuple:
+    elements_array = np.array(elements, dtype=np.float32)
+    mean = np.mean(elements_array)
+    std_dev = np.std(elements_array)
+    max_val = np.max(elements_array)
+    min_val = np.min(elements_array)
+    range_val = max_val - min_val
+    mode_val = np.average(stats.mode(elements_array)[0])
+
+    return mean, std_dev, range_val, max_val, min_val, mode_val
+
+
+def get_vacuum_layer_thickness(structure: Structure) -> float:
+    lattice = structure.lattice
+    c = lattice.c
+
+    z_coords = [site.frac_coords[2] for site in structure.sites]
+    max_z = max(z_coords)
+    min_z = min(z_coords)
+
+    layer_thickness = (max_z - min_z) * c
+    return min(c - layer_thickness, 1)  # Avoid dividing zero
 
 
 def single_column_descriptor(structure: Structure) -> np.ndarray:
-    avg_electron_affinity, avg_ionization_energy, avg_covalent_radius = get_average_properties(structure)
-    features = np.array([
-        structure.density,
-        structure.composition.average_electroneg,
-        avg_electron_affinity,
-        avg_ionization_energy,
-        avg_covalent_radius,
-        structure.composition.total_electrons,
-        structure.composition.num_atoms,
-        structure.get_space_group_info()[1],
+    """ Generate single column features -> len(69 + 7) """
+    component_features = get_properties(structure)
+    a, b = max(structure.lattice.a, structure.lattice.b), min(structure.lattice.a, structure.lattice.b)
+    c = structure.lattice.c
+    vacuum = get_vacuum_layer_thickness(structure)
+    structure_features = np.array(
+        [
+            structure.get_space_group_info()[1],
+            structure.lattice.gamma % 90,
+            a,
+            b,
+            c - vacuum,
+            structure.volume / c,
+            structure.density * (c - vacuum) / c,
+        ]
+    )
+    features = np.hstack([
+        component_features,
+        structure_features
     ], dtype=np.float32)
     return features
 
 
 class MlpDataset(Dataset):
 
-    def __init__(self, data):
+    def __init__(self, data, extra_features=None):
+        assert len(data) == len(extra_features) or extra_features is None
         self.data = []
-        for structure, target in data:
-            features = torch.tensor(single_column_descriptor(structure), dtype=torch.float, device=DEVICE)
-            target = torch.tensor(target, dtype=torch.float, device=DEVICE)
+        for (structure, target), e in tqdm(
+                zip(data, extra_features), desc='Processing structures', unit='structure', total=len(data)
+        ):
+            features = np.hstack([single_column_descriptor(structure), e], dtype=np.float32)
+            features = torch.from_numpy(features)
+            target = torch.tensor(target, dtype=torch.float)
             self.data.append((features, target))
 
         scaler = get_scaler_for_dataset(self)
@@ -111,16 +213,21 @@ class MlpDataset(Dataset):
 
 class CnnDataset(Dataset):
 
-    def __init__(self, data, picture_size, transform: Callable = None, scaler=None):
+    def __init__(self, data, picture_size, transform: Callable = None, scaler=None, extra=None):
+        assert len(data) == len(extra) or extra is None
+        if not extra:
+            extra = [[] * len(data)]
         self.data = []
         self.extra_features = []
         # Prepare features, because generation is expensive
-        for structure, target in tqdm(data, desc='Processing structures', unit='structure'):
+        for (structure, target), e in tqdm(
+                zip(data, extra), desc='Processing structures', unit='structure', total=len(data)
+        ):
             feature = structure_to_feature_v1(structure, n=5, picture_size=picture_size)  # transform to picture
             target = torch.tensor(target)
             self.data.append((feature, target))
             self.extra_features.append(
-                torch.tensor(single_column_descriptor(structure))
+                torch.from_numpy(np.hstack([single_column_descriptor(structure), e], dtype=np.float32))
             )
 
         self.transform = transform
@@ -129,7 +236,9 @@ class CnnDataset(Dataset):
         self.scaler = scaler
         if scaler:
             sf = StandardizeFeature(scaler)
-            self.extra_features = [sf(item) for item in self.extra_features]  # Standardize
+            self.extra_features = [
+                sf(item) for item in self.extra_features
+            ]  # Standardize
 
     def __len__(self):
         return len(self.data)
@@ -147,11 +256,13 @@ class CnnDataset(Dataset):
 def get_dataloader_v1(
         db_path: str,
         select: Dict,
-        target: List[str],
+        target: List[str] | str,
+        extra_features: List,
         save_path: str = '',
         batch_size: int = 32,
         train_val_test_ratio=(8, 2, 0),
         target_size=(96, 96),
+        augment: bool = False
 ):
     # save == '' indicates no save
     torch.manual_seed(SEED)
@@ -164,21 +275,32 @@ def get_dataloader_v1(
     picture_size = (target_size[0] * 2, target_size[1] * 2)
     transform = RandomCropAndRotate3D(picture_size)
     if any(not os.path.exists(path) for path in [train_loader_path, val_loader_path, test_loader_path]):
-        data = get_data_from_db(db_path, select, target)
-        random.shuffle(data)
+        # Get data and shuffle
+        data, extra = get_data_from_db(db_path, select, target, *extra_features)
+        paired_data = list(zip(data, extra))
+        random.shuffle(paired_data)
+        data_shuffled, extra_shuffled = zip(*paired_data)
+        data, extra = list(data_shuffled), list(extra_shuffled)
 
+        # Calculate ratio of train, validation and test
         total_count = len(data)
         train_count = int(total_count * train_val_test_ratio[0] / sum(train_val_test_ratio))
         val_test_count = total_count - train_count
         val_count = int(val_test_count * train_val_test_ratio[1] / (train_val_test_ratio[1] + train_val_test_ratio[2]))
 
         # Scaler for train dataset only
-        train_dataset = CnnDataset(data[:train_count], picture_size, transform=transform)
+        if augment:
+            train_dataset = CnnDataset(data[:train_count], picture_size, transform=transform, extra=extra[:train_count])
+        else:
+            train_dataset = CnnDataset(data[:train_count], target_size, extra=extra[:train_count])
         scaler = train_dataset.scaler
         save_path and joblib.dump(scaler, f'{save_path}/scaler.joblib')
-        val_dataset = CnnDataset(data[train_count:train_count + val_count], picture_size, scaler=scaler)
-        test_dataset = CnnDataset(data[train_count + val_count:], picture_size, scaler=scaler)
+        val_dataset = CnnDataset(data[train_count:train_count + val_count], target_size, scaler=scaler,
+                                 extra=extra[train_count:train_count + val_count])
+        test_dataset = CnnDataset(data[train_count + val_count:], target_size, scaler=scaler,
+                                  extra=extra[train_count + val_count:])
 
+    # Load or save the dataset
     if os.path.exists(train_loader_path):
         train_loader = torch.load(train_loader_path)
         print('Load train data successfully!')
@@ -424,52 +546,44 @@ def structure_to_feature_v1(
     return torch.tensor(return_matrix, requires_grad=is_train)
 
 
-def get_data_from_db(db: str, select: Dict, target: List[str], target_range=(0, 8)) -> List:
+def get_data_from_db(
+        db: str,
+        select: Dict,
+        target: List[str] | str,
+        *args,
+        target_range=(0, 8),
+) -> Tuple[List, List] | List:
     db = connect(db)
     rows = db.select(**select)
     res = []
+    extra_features = []
     for row in tqdm(rows, 'Loading data', unit='row'):
         row: AtomsRow
 
         atoms = row.toatoms()
         structure = read_structure_file(atoms)
         try:
-            t = reduce(lambda x, y: x[y], target, row.data)
+            t = reduce(lambda x, y: x[y], target, row.data) if isinstance(target, list) else getattr(row, target)
             if t is None or t > target_range[1] or t < target_range[0]:
                 continue
+            if not args:
+                res.append([structure, t])
+                continue
+            tmp = []
+            for extra in args:
+                e = reduce(lambda x, y: x[y], extra, row.data) if isinstance(extra, list) else getattr(row, extra)
+                tmp.append(e)
+            extra_features.append(tmp)
             res.append([structure, t])
         except KeyError:
             # print(f'{structure.formula}: none')
             continue
     print(f'共计获取到 {len(res)} 条数据')
-    return res
-
-
-def calc_rdf(structure, dr=0.1, rmax=10.0):
-    import matplotlib.pyplot as plt
-    bins = np.arange(0, rmax + dr, dr)
-
-    if isinstance(structure, Structure):
-        structure = structure.to_ase_atoms()
-    d, d_len = get_distances(structure.positions, cell=structure.cell, pbc=True)
-    hist, bins = np.histogram(d_len[d_len > 0], bins=bins)
-
-    volume = structure.get_volume()
-    density = len(structure) / volume
-    rdf = hist / (4 * np.pi * (bins[:-1] ** 2) * dr * density * len(structure) + 1e-10)
-    rdf.astype(np.float32)
-
-    plt.figure(figsize=(8, 6), dpi=200)
-    plt.plot(bins[:-1], rdf)
-    plt.xlabel('Distance [Å]')
-    plt.ylabel('g(r)')
-    plt.show()
-
-    return rdf
+    return (res, extra_features) if args else res
 
 
 if __name__ == '__main__':
     from plot_utils import plot_atoms
 
-    get_data_from_db('../datasets/c2db.db', select={},
-                     target=['results-asr.gs.json', 'kwargs', 'data', 'gap_nosoc'])
+    get_data_from_db('../datasets/c2db.db', {'selection': 'gap'},
+                     'gap', ['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc'])
