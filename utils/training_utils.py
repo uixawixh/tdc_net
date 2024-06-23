@@ -3,7 +3,6 @@
 import os
 import time
 import shutil
-from typing import Tuple
 
 import torch
 
@@ -17,6 +16,7 @@ def save_checkpoint(epoch, train_loss, val_loss, filename: str, model=None, opti
         'epoch': epoch,
         'train_loss': train_loss,
         'val_loss': val_loss,
+        'time': time.time(),
         **kwargs
     }
     if scheduler is not None:
@@ -94,12 +94,9 @@ def train_and_eval(
         checkpoint_step: int = 1,
         start_epoch: int = 1,
         num_epochs: int = 30,
-        *,
-        classify_boundaries: Tuple = (2, 4, 6)
 ) -> str:
     assert start_epoch >= 1
     train_losses, val_losses = [], []
-    classify_boundaries = torch.tensor(classify_boundaries, device=DEVICE, dtype=torch.float)
     for epoch in range(1, start_epoch):
         path = os.path.join(checkpoint_path, f'model_epoch_{epoch}.ckpt')
         _, train_loss, val_loss = load_checkpoint(path, model, optimizer, scheduler, inplace=epoch == start_epoch - 1)
@@ -126,18 +123,7 @@ def train_and_eval(
             labels = datas[-1].to(DEVICE)
             outputs = model(*features)
 
-            if isinstance(criterion, (list, tuple)):
-                # The first should be loss of classification
-                criterion_classification, criterion_regression = criterion
-                predicted_logits, outputs = outputs
-                true_classes = torch.bucketize(labels, boundaries=classify_boundaries, right=True)
-                classification_loss = criterion_classification(predicted_logits.float(), true_classes)
-
-                regression_loss = criterion_regression(outputs, labels)
-
-                loss = classification_loss + 0.1 * regression_loss
-            else:
-                loss = criterion(outputs.squeeze(), labels)
+            loss = criterion(outputs.squeeze(), labels)
 
             # backward
             optimizer.zero_grad()
@@ -150,7 +136,7 @@ def train_and_eval(
 
         train_loss /= len(train_loader)
         train_time = time.time() - start_time
-        val_loss, r2, mae, rmse = evaluate_loss(model, val_loader, criterion, classify_boundaries, (1, 0.01))
+        val_loss, r2, mae, rmse = evaluate_loss(model, val_loader, criterion)
         train_losses.append(train_loss)
         val_losses.append(val_loss)
         print(
@@ -162,7 +148,7 @@ def train_and_eval(
         scheduler and scheduler.step()
 
         step += 1
-        do_saving = lambda: save_checkpoint(
+        do_saving = lambda filename: save_checkpoint(
             epoch=epoch,
             model=model,
             optimizer=optimizer,
@@ -170,14 +156,14 @@ def train_and_eval(
             train_loss=train_loss,
             train_time=train_time,
             scheduler=scheduler,
-            filename=f'{checkpoint_path}/model_epoch_{epoch}.ckpt'
+            filename=filename
         )
-        checkpoint_path and step % checkpoint_step == 0 and do_saving()
+        checkpoint_path and step % checkpoint_step == 0 and do_saving(f'{checkpoint_path}/model_epoch_{epoch}.ckpt')
         if best_score < r2:
             if checkpoint_path:
                 os.path.exists(best_model_pth) and os.remove(best_model_pth)
-                do_saving()
-                best_model_pth = f'{checkpoint_path}/model_epoch_{epoch}.ckpt'
+                best_model_pth = f'{checkpoint_path}/best_model_{int(time.time())}.ckpt'
+                do_saving(best_model_pth)
             best_score = r2
 
     print('Validation best Score: ', best_score)

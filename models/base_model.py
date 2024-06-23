@@ -1,12 +1,9 @@
 # !/usr/bin/python
 # coding:utf-8
-import random
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.nn import init
-
-from models.tdc_net import Bottleneck3D
 
 
 def initialize_weights(model):
@@ -32,14 +29,14 @@ class MLP(nn.Module):
     def __init__(self, num_features):
         super().__init__()
         self.input_fc = nn.Linear(num_features, 512)
-        self.hidden = nn.Linear(512, 2048)
+        self.hidden1 = nn.Linear(512, 2048)
         self.output_fc = nn.Linear(2048, 1)
-        self.dropout = nn.Dropout()
+        self.dropout = nn.Dropout(0.2)
 
     def forward(self, x):
         out = F.relu(self.input_fc(x))
         out = self.dropout(out)
-        out = F.relu(self.hidden(out))
+        out = F.relu(self.hidden1(out))
         out = self.dropout(out)
         out = self.output_fc(out)
         return F.relu6(out) * 8 / 6
@@ -80,26 +77,27 @@ class HierarchicalModel(nn.Module):
 
 
 if __name__ == '__main__':
-    from utils.data_utils import MlpDataset, get_data_from_db
+    import warnings
+    warnings.filterwarnings('ignore')
+    from utils.data_utils import get_dataloader
     from utils.training_utils import train_and_eval
     from utils.plot_utils import plot_true_predict_model
 
-    data = get_data_from_db(
+    train_loader, val_loader, test_loader = get_dataloader(
         '../datasets/c2db.db',
-        select={'has_asr_hse': True},
-        target=['results-asr.hse.json', 'kwargs', 'data', 'gap']
+        save_path='../datasets/test',
+        batch_size=64,
+        select={'selection': 'gap'},
+        target='gap',
+        extra_features=['efermi', 'hform', 'evac', 'dos_at_ef_nosoc'],
     )
-    dataset = MlpDataset(data)
-    torch.manual_seed(1007)
-    train, val = torch.utils.data.random_split(dataset, (0.8, 0.2))
 
-    model = MLP(76)
+    model = MLP(77)
     initialize_weights(model)
-    optimizer = torch.optim.Adam(model.parameters(), lr=3e-3, weight_decay=0.01)
+    optimizer = torch.optim.NAdam(model.parameters(), lr=0.8e-3, weight_decay=1e-3, momentum_decay=1e-3)
     criterion = torch.nn.MSELoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 20, 4, 0)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 100, 0.1)
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 20, 2, 0)
 
-    train = torch.utils.data.DataLoader(train, batch_size=64)
-    val = torch.utils.data.DataLoader(val, batch_size=64)
-    train_and_eval(model, train, val, criterion, optimizer, scheduler=scheduler, num_epochs=300)
-    plot_true_predict_model(model, (train, val))
+    train_and_eval(model, train_loader, val_loader, criterion, optimizer, scheduler=scheduler, num_epochs=300)
+    plot_true_predict_model(model, (train_loader, val_loader))

@@ -190,7 +190,7 @@ class FireModule3D(nn.Module):
         self.expand1x1x1 = nn.Conv3d(squeeze_channels, expand1x1x1_channels, kernel_size=1)
         self.expand3x3x3 = nn.Conv3d(squeeze_channels, expand3x3x3_channels, kernel_size=3, padding=1)
 
-        self.se_block = SEBlock(squeeze_channels + expand1x1x1_channels + expand3x3x3_channels)
+        self.se_block = SEBlock(expand1x1x1_channels + expand3x3x3_channels)
 
     def forward(self, x):
         out = F.relu(self.squeeze(x), inplace=True)
@@ -205,18 +205,18 @@ class FireModule3D(nn.Module):
 
 
 class SqueezeNet3D(nn.Module):
-    def __init__(self, in_channels=3, out_dim=128, channel_attention=False):
+    def __init__(self, in_channels=3, out_dim=128):
         super().__init__()
         self.features = nn.Sequential(
             nn.Conv3d(in_channels, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.AvgPool3d(kernel_size=2, stride=2, padding=(1, 0, 0), ceil_mode=True),
+            nn.MaxPool3d(kernel_size=2, stride=2, padding=(1, 0, 0), ceil_mode=True),
             FireModule3D(64, 16, 64, 64),
             FireModule3D(128, 16, 64, 64),
-            nn.AvgPool3d(kernel_size=2, stride=2, padding=(1, 0, 0), ceil_mode=True),
+            nn.MaxPool3d(kernel_size=2, stride=2, padding=(1, 0, 0), ceil_mode=True),
             FireModule3D(128, 32, 128, 128),
             FireModule3D(256, 32, 128, 128),
-            nn.AvgPool3d(kernel_size=2, stride=2, padding=(1, 0, 0), ceil_mode=True),
+            nn.MaxPool3d(kernel_size=2, stride=2, padding=(1, 0, 0), ceil_mode=True),
             FireModule3D(256, 48, 192, 192),
             FireModule3D(384, 48, 192, 192),
             FireModule3D(384, 64, 256, 256),
@@ -267,10 +267,10 @@ class TDCNet(nn.Module):
         else:
             out = out
 
-        out = F.leaky_relu(self.feat_fc(out))
-        out = F.dropout(out)
-        out = F.leaky_relu(self.hidden_fc1(out))
-        out = F.dropout(out)
+        out = F.relu(self.feat_fc(out), inplace=True)
+        out = F.dropout(out, 0.1)
+        out = F.relu(self.hidden_fc1(out), inplace=True)
+        out = F.dropout(out, 0.1)
         out = self.output_fc(out)
         if self.prior_func is not None:
             out = self.prior_func(out)
@@ -336,6 +336,32 @@ def squeezed_net(
         cnn_props = dict()
     cnn_model = SqueezeNet3D(in_channels, **cnn_props)
     return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
+
+
+def simple_net(
+        num_features: int,
+        in_channels: int = 3,
+        output_dim=1,
+        prior_func: Callable = None,
+        **kwargs
+):
+    features = 128
+    cnn_model = nn.Sequential(
+        nn.Conv3d(in_channels, 32, kernel_size=3, padding=1, stride=2, bias=False),
+        nn.BatchNorm3d(32),
+        nn.ReLU(inplace=True),
+        nn.MaxPool3d(kernel_size=2, stride=2, ceil_mode=True),
+        nn.Conv3d(32, 64, kernel_size=3, padding=1, bias=False),
+        nn.BatchNorm3d(64),
+        nn.ReLU(inplace=True),
+        nn.MaxPool3d(kernel_size=2, stride=2, ceil_mode=True),
+        nn.Dropout(),
+        nn.Conv3d(64, features, kernel_size=1),
+        nn.ReLU(inplace=True),
+        nn.AdaptiveAvgPool3d((1, 1, 1)),
+        nn.Flatten(),
+    )
+    return TDCNet(features, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
 def resnet18(
@@ -427,30 +453,36 @@ def senet152(
 
 
 if __name__ == '__main__':
+    import warnings
     from base_model import initialize_weights
     from utils.training_utils import train_and_eval
-    from utils.data_utils import get_dataloader_v1
+    from utils.data_utils import get_dataloader
     from utils.plot_utils import plot_true_predict_model
 
-    # Prior 0 <= x <= 10, but need to avoid node dead
-    model = squeezed_net(
-        num_features=76 + 5,
-        prior_func=lambda x: F.relu6(x) * 8 / 6
+    warnings.filterwarnings('ignore')
+
+    # Prior 0 <= x <= 8, but need to avoid node dead
+    model = simple_net(
+        num_features=74,
+        prior_func=lambda x: F.relu6(x) * 8 / 6,
+        in_channels=8,
     )
     initialize_weights(model)
-    train_loader, val_loader, test_loader = get_dataloader_v1(
+    train_loader, val_loader, test_loader = get_dataloader(
         '../datasets/c2db.db',
-        save_path='../datasets/pbe_set_e',
+        save_path='../datasets/test',
         batch_size=64,
         select={'selection': 'gap'},
         target='gap',
-        extra_features=['efermi', 'energy', 'hform', 'ehull', 'evac']
+        # extra_features=['efermi', 'hform', 'evac', 'dos_at_ef_nosoc'],
+        train_val_test_ratio=(8, 2, 0),
     )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=0.01)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 20, 2, 0)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 20, 2, 0)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 50, 0.3)
     criterion = nn.MSELoss()
 
     best_model_pth = train_and_eval(model, train_loader, val_loader, criterion, optimizer, scheduler=scheduler,
-                                    checkpoint_path='../checkpoints', start_epoch=1, num_epochs=300, checkpoint_step=10)
-    plot_true_predict_model(model, (train_loader, val_loader), '../checkpoints/model_epoch_289.ckpt')
+                                    checkpoint_path='../checkpoints', start_epoch=1, num_epochs=150, checkpoint_step=50)
+    plot_true_predict_model(model, (train_loader, val_loader), best_model_pth)

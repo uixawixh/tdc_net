@@ -13,8 +13,6 @@ def evaluate_loss(
         model,
         dataloader,
         criterion,
-        classify_boundaries=None,
-        loss_weight=None
 ) -> Tuple[float, float, float, float]:
     if next(model.parameters()).device != DEVICE:
         model.to(DEVICE)
@@ -30,17 +28,7 @@ def evaluate_loss(
             labels = datas[-1].to(DEVICE)
             outputs = model(*features)
 
-            if isinstance(outputs, tuple) and len(outputs) == 2:
-                # Calculate mixed loss
-                criterion_classification, criterion_regression = criterion
-                predicted_logits, outputs = outputs
-                true_classes = torch.bucketize(labels, boundaries=classify_boundaries, right=True)
-                classification_loss = criterion_classification(predicted_logits.float(), true_classes)
-
-                regression_loss = criterion_regression(outputs, labels)
-                loss = loss_weight[0] * classification_loss + loss_weight[1] * regression_loss
-            else:
-                loss = criterion(outputs.squeeze(), labels)
+            loss = criterion(outputs.squeeze(), labels)
 
             total_loss += loss.item()
 
@@ -59,16 +47,6 @@ def evaluate_loss(
     r2 = r2_score(all_labels, all_predictions)
     mae = mean_absolute_error(all_labels, all_predictions)
     rmse = np.sqrt(mean_squared_error(all_labels, all_predictions))
-
-    if isinstance(criterion, (list, tuple)):
-        # Classification score
-        true_classes = np.digitize(all_labels, classify_boundaries.cpu().numpy(), right=True)
-        predict_classes = np.digitize(all_predictions, classify_boundaries.cpu().numpy(), right=True)
-
-        accuracy = accuracy_score(true_classes, predict_classes)
-        print(f"Accuracy: {accuracy}")
-        f1_weighted = f1_score(true_classes, predict_classes, average='weighted')
-        print(f"F1 Score (Weighted): {f1_weighted}")
 
     return avg_loss, r2, mae, rmse
 

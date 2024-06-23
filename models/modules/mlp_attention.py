@@ -3,11 +3,12 @@ import torch.nn as nn
 
 class AttentionLayer(nn.Module):
     def __init__(self, input_dim, reduction=2):
-        super(AttentionLayer, self).__init__()
+        super().__init__()
+
         self.attention_network = nn.Sequential(
-            nn.Linear(input_dim, input_dim // reduction),
-            nn.ReLU(),
-            nn.Linear(input_dim // reduction, input_dim),
+            nn.Linear(input_dim, int(input_dim / reduction)),
+            nn.ReLU(inplace=True),
+            nn.Linear(int(input_dim / reduction), input_dim),
             nn.Sigmoid()
         )
 

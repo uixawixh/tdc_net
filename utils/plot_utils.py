@@ -125,34 +125,34 @@ def plot_atoms(return_matrix):
 
     # Get the figure and axes objects
     # Layout is 3 rows (one for each feature) and n columns (one for each layer)
-    fig, axes = plt.subplots(3, n, figsize=(5 * n, 15), dpi=200)
-
-    # Titles for each channel (feature map)
-    titles = ['Electronegativity', 'Period', 'Group']
+    fig, axes = plt.subplots(1, n, figsize=(5 * n, 5), dpi=200)
 
     # Use nested loops to plot the matrices
-    for feature_idx in range(3):  # Loop through the number of features
-        for layer_idx in range(n):  # Loop through layers
-            ax = axes[feature_idx, layer_idx] if n > 1 else axes[feature_idx]
-            feature_map = return_matrix[feature_idx, layer_idx]
-            max_val = feature_map.max()  # Find the maximum value for normalization
-            normalized_matrix = feature_map / max_val if max_val > 0 else feature_map
+    for layer_idx in range(n):  # Loop through layers
+        ax = axes[layer_idx]
+        # Extract the three feature maps for the current layer
+        feature_map_r = return_matrix[0, layer_idx]
+        feature_map_g = return_matrix[1, layer_idx]
+        feature_map_b = return_matrix[2, layer_idx]
 
-            # Display the image
-            ax.imshow(normalized_matrix, cmap='viridis')
+        # Normalize the feature maps
+        max_val_r = feature_map_r.max() if feature_map_r.max() > 0 else 1
+        max_val_g = feature_map_g.max() if feature_map_g.max() > 0 else 1
+        max_val_b = feature_map_b.max() if feature_map_b.max() > 0 else 1
 
-            # Only set titles for the top row
-            if feature_idx == 0:
-                ax.set_title(f'Layer {layer_idx + 1}')
+        normalized_r = feature_map_r / max_val_r
+        normalized_g = feature_map_g / max_val_g
+        normalized_b = feature_map_b / max_val_b
 
-            ax.axis('off')  # Turn off axis labels
+        # Stack the normalized feature maps into an RGB image
+        rgb_image = np.stack((normalized_r, normalized_g, normalized_b), axis=-1)
 
-    # Setting feature title for each row
-    for feature_idx, title in enumerate(titles):
-        if n == 1:
-            axes[feature_idx].set_ylabel(title, fontsize=12)
-        else:
-            axes[feature_idx, 0].set_ylabel(title, fontsize=12)
+        # Display the image
+        ax.imshow(rgb_image)
+
+        # Set titles for the top row
+        ax.set_title(f'Layer {layer_idx + 1}')
+        ax.axis('off')  # Turn off axis labels
 
     plt.tight_layout()
     plt.show()
@@ -175,7 +175,7 @@ def plot_true_predict_model(model, dataloader: Union[DataLoader, Tuple], model_l
         true_values, pred_values = predict_value(model, item)
 
         sns.scatterplot(x=true_values, y=pred_values, label=label, color='#ef8a43' if label == 'test' else 'blue')
-        plt.plot([true_values.min(), true_values.max()], [true_values.min(), true_values.max()], 'r--')
+    plt.plot([0, 8], [0, 8], 'r--')
     plt.xlabel('True Values')
     plt.ylabel('Predicted Values')
     plt.grid(True)
@@ -215,18 +215,21 @@ def feature_corr(dataset, columns=None):
 
 if __name__ == '__main__':
     from data_utils import MlpDataset, get_data_from_db
+    from feature_utils import structure_to_feature, read_structure_file
 
-    data = get_data_from_db(
-        '../datasets/c2db.db',
-        select={'has_asr_hse': True},
-        target=['results-asr.hse.json', 'kwargs', 'data', 'gap_hse_nosoc']
-        # select={},
-        # target=['results-asr.gs.json', 'kwargs', 'data', 'gap_nosoc']
-    )
-    # plot_hist(list(map(lambda x: x[1], data)), '', 'gap[eV]')
-    dataset = MlpDataset(data)
-    plot_hist(
-        np.hstack([i.cpu().numpy() for _, i in dataset]),
-        '',
-        'gap [eV]'
-    )
+    # data, _ = get_data_from_db(
+    #     '../datasets/c2db.db',
+    #     select={'selection': 'workfunction'},
+    #     target='workfunction',
+    #     # select={},
+    #     # target=['results-asr.gs.json', 'kwargs', 'data', 'gap_nosoc']
+    #     max_size=96**2
+    # )
+    # # plot_hist(list(map(lambda x: x[1], data)), '', 'gap[eV]')
+    # dataset = MlpDataset(data)
+    # plot_hist(
+    #     np.hstack([i.cpu().numpy() for _, i in dataset]),
+    #     '',
+    #     'gap [eV]'
+    # )
+    plot_atoms(structure_to_feature((read_structure_file('POSCAR'))))

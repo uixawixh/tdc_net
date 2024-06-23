@@ -1,11 +1,11 @@
 {
     "Ridge Regression": {
         "polynomialfeatures__degree": 2,
-        "ridge__alpha": 1
+        "ridge__alpha": 30
     },
     "KNN": {
         "kneighborsregressor__leaf_size": 20,
-        "kneighborsregressor__metric": "manhattan",
+        "kneighborsregressor__metric": "euclidean",
         "kneighborsregressor__n_neighbors": 5,
         "kneighborsregressor__weights": "distance"
     },
@@ -16,26 +16,26 @@
     },
     "Random Forest": {
         "randomforestregressor__max_depth": null,
-        "randomforestregressor__max_features": "log2",
+        "randomforestregressor__max_features": "sqrt",
         "randomforestregressor__min_samples_leaf": 1,
         "randomforestregressor__min_samples_split": 2,
         "randomforestregressor__n_estimators": 500
     },
     "GBDT": {
-        "gradientboostingregressor__max_depth": 7,
+        "gradientboostingregressor__max_depth": 3,
         "gradientboostingregressor__max_features": "sqrt",
-        "gradientboostingregressor__min_samples_leaf": 4,
+        "gradientboostingregressor__min_samples_leaf": 2,
         "gradientboostingregressor__min_samples_split": 2,
         "gradientboostingregressor__n_estimators": 500,
         "gradientboostingregressor__subsample": 1.0
     },
     "XGBoost": {
-        "xgbregressor__gamma": 0.1,
+        "xgbregressor__gamma": 0,
         "xgbregressor__learning_rate": 0.1,
         "xgbregressor__max_depth": 6,
         "xgbregressor__min_child_weight": 1,
         "xgbregressor__n_estimators": 500,
-        "xgbregressor__reg_lambda": 1e-05,
-        "xgbregressor__subsample": 0.8
+        "xgbregressor__reg_lambda": 0.0001,
+        "xgbregressor__subsample": 0.6
     }
 }
