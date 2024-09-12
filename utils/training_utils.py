@@ -9,6 +9,7 @@ import torch
 from config import DEVICE
 from utils.plot_utils import plot_losses
 from utils.eval_utils import evaluate_loss
+from models.tdc_net import WeightedMSELoss
 
 
 def save_checkpoint(epoch, train_loss, val_loss, filename: str, model=None, optimizer=None, scheduler=None, **kwargs):
@@ -38,19 +39,19 @@ def load_checkpoint(filepath: str, model=None, optimizer=None, scheduler=None, i
         val_loss = checkpoint['val_loss']
 
         if inplace:
-            assert model is not None and optimizer is not None
+            assert model is not None
             model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            if optimizer:
+                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                for state in optimizer.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor):
+                            state[k] = v.to(DEVICE)
             if scheduler and checkpoint.get('scheduler_state_dict'):
                 scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             print(
                 f"Checkpoint successfully loaded, the model has been restored to the state at the end of {epoch} round"
             )
-
-            for state in optimizer.state.values():
-                for k, v in state.items():
-                    if isinstance(v, torch.Tensor):
-                        state[k] = v.to(DEVICE)
 
         return epoch, train_loss, val_loss
     else:
@@ -122,8 +123,12 @@ def train_and_eval(
             features = [i.to(DEVICE) for i in features] if isinstance(features, (tuple, list)) else features.to(DEVICE)
             labels = datas[-1].to(DEVICE)
             outputs = model(*features)
+            pbe_gaps = features[1][:, -1]
 
-            loss = criterion(outputs.squeeze(), labels)
+            if isinstance(criterion, WeightedMSELoss):
+                loss = criterion(outputs.squeeze(), labels, pbe_gaps)
+            else:
+                loss = criterion(outputs.squeeze(), labels)
 
             # backward
             optimizer.zero_grad()
@@ -135,39 +140,41 @@ def train_and_eval(
             train_loss += loss.item()
 
         train_loss /= len(train_loader)
-        train_time = time.time() - start_time
-        val_loss, r2, mae, rmse = evaluate_loss(model, val_loader, criterion)
         train_losses.append(train_loss)
-        val_losses.append(val_loss)
-        print(
-            f'Epoch [{epoch}/{num_epochs}] Train Loss: {train_loss:.4f},',
-            f'Validation Loss: {val_loss:.4f}, cost: {train_time:.2f}s\n',
-            f'Validation R2: {r2:.2f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}'
-        )
-
-        scheduler and scheduler.step()
-
+        train_time = time.time() - start_time
         step += 1
-        do_saving = lambda filename: save_checkpoint(
+        do_saving = lambda filename, _val_loss: save_checkpoint(
             epoch=epoch,
             model=model,
             optimizer=optimizer,
-            val_loss=val_loss,
+            val_loss=_val_loss,
             train_loss=train_loss,
             train_time=train_time,
             scheduler=scheduler,
             filename=filename
         )
-        checkpoint_path and step % checkpoint_step == 0 and do_saving(f'{checkpoint_path}/model_epoch_{epoch}.ckpt')
-        if best_score < r2:
-            if checkpoint_path:
-                os.path.exists(best_model_pth) and os.remove(best_model_pth)
-                best_model_pth = f'{checkpoint_path}/best_model_{int(time.time())}.ckpt'
-                do_saving(best_model_pth)
-            best_score = r2
+        checkpoint_path and step % checkpoint_step == 0 and do_saving(f'{checkpoint_path}/model_epoch_{epoch}.ckpt', None)
+        if val_loader is not None:
+            val_loss, r2, mae, rmse = evaluate_loss(model, val_loader, criterion)
+            val_losses.append(val_loss)
+            print(
+                f'Epoch [{epoch}/{num_epochs}] Train Loss: {train_loss:.4f},',
+                f'Validation Loss: {val_loss:.4f}, cost: {train_time:.2f}s\n',
+                f'Validation R2: {r2:.2f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}'
+            )
 
-    print('Validation best Score: ', best_score)
-    plot_losses(train_losses, val_losses)
+            if best_score < r2:
+                if checkpoint_path:
+                    os.path.exists(best_model_pth) and os.remove(best_model_pth)
+                    best_model_pth = f'{checkpoint_path}/best_model_{int(time.time())}.ckpt'
+                    do_saving(best_model_pth, val_loss)
+                best_score = r2
+
+        scheduler and scheduler.step()
+
+    if val_loader is not None:
+        print('Validation best Score: ', best_score)
+        plot_losses(train_losses, val_losses)
     return best_model_pth
 
 

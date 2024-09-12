@@ -5,6 +5,7 @@ import random
 from functools import reduce
 from typing import List, Callable, Dict, Tuple
 
+import pandas as pd
 import torch
 import joblib
 import numpy as np
@@ -15,7 +16,7 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import StratifiedShuffleSplit
 
-from utils.sklearn_utils import StandardizeFeature, get_scaler_for_dataset
+from utils.sklearn_utils import StandardizeFeature
 from utils.feature_utils import read_structure_file, FeatureExtract
 from config import SEED, SCALE
 
@@ -48,31 +49,14 @@ class RandomCropAndRotate3D:
         return x
 
 
-class MlpDataset(Dataset):
-
-    def __init__(self, data):
-        self.data = data
-
-        # Standardize
-        scaler = StandardScaler()
-        scaler.fit([i[0] for i in data])
-        sf = StandardizeFeature(scaler)
-        self.data = [[sf(features), label] for features, label in self.data]
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, item):
-        features, target = self.data[item]
-        return features, target
-
-
 class CnnDataset(Dataset):
 
     def __init__(self, data, extra=None, transform: Callable = None, scaler=None):
         assert extra is None or len(data) == len(extra)
         self.data = [(torch.tensor(i), torch.tensor(j)) for i, j in data]
-        self.extra_features = np.asarray(extra, dtype=np.float32)
+        self.extra_features = None
+        if extra is not None:
+            self.extra_features = np.asarray(extra, dtype=np.float32)
 
         self.transform = transform
         if scaler is None:
@@ -81,71 +65,45 @@ class CnnDataset(Dataset):
         self.scaler = scaler
         if scaler:
             sf = StandardizeFeature(scaler)
-            self.extra_features = [torch.from_numpy(sf(item)) for item in self.extra_features]  # Standardize
+            if extra is not None:
+                self.extra_features = [torch.from_numpy(sf(item)) for item in self.extra_features]  # Standardize
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, item):
         feature, target = self.data[item]
-        extra_features = self.extra_features[item]
-
         # Data augment
         if self.transform is not None:
             feature = self.transform(feature)
 
+        # No any extra features
+        if self.extra_features is None:
+            return feature.float(), target.float()
+
+        extra_features = self.extra_features[item]
         return feature.float(), extra_features.float(), target.float()
 
 
-def get_dataloader(
-        db_path: str,
-        select: Dict,
-        target: List[str] | str,
-        extra_features: List = None,
-        extra_columns: List = None,
-        save_path: str = '',
-        batch_size: int = 32,
-        train_val_test_ratio=(8, 2, 0),
-        target_size=(96, 96),
-        augment: bool = False,
-        drop_col: List[str] = None,
-):
-    # save == '' indicates no save
-    if extra_columns is None:
-        extra_columns = extra_features
-    assert len(train_val_test_ratio) == 3
-    train_loader_path = f'{save_path}/train_loader.pth'
-    val_loader_path = f'{save_path}/val_loader.pth'
-    test_loader_path = f'{save_path}/test_loader.pth'
+def _split_data(data, extra, train_val_test_ratio):
+    # Calculate ratio of train, validation and test
+    train_ratio, val_ratio, test_ratio = [float(i) for i in train_val_test_ratio]
+    total = sum(train_val_test_ratio)
 
-    torch.manual_seed(SEED)
-    random.seed(SEED)
-
-    picture_size = (target_size[0] * 2, target_size[1] * 2)
-    transform = RandomCropAndRotate3D(picture_size) if augment else None
-    if any(not os.path.exists(path) for path in [train_loader_path, val_loader_path, test_loader_path]):
-        # Get data and shuffle
-        data, extra = get_data_from_db(db_path, select, target, *(extra_features or []),
-                                       max_size=target_size[0] * target_size[1])
-        # Generate features
-        fx = FeatureExtract(dir_path=save_path)
-        df = fx.get_features(
-            [item[0] for item in data],
-            [item[1] for item in data],
-            data_extra=extra,
-            extra_columns=extra_columns,
-            drop_col=drop_col
-        )
-
-        data = [[i, j] for i, j in zip(df['STRUCTURE'].to_numpy(), df['LABEL'].to_numpy())]
-
-        extra = df.iloc[:, :-2].to_numpy()
-
-        # Calculate ratio of train, validation and test
-        total_count = len(data)
-        train_count = int(total_count * train_val_test_ratio[0] / sum(train_val_test_ratio))
-        val_test_count = total_count - train_count
-        val_count = int(val_test_count * train_val_test_ratio[1] / (train_val_test_ratio[1] + train_val_test_ratio[2]))
+    total_count = len(data)
+    train_count = int(total_count * train_ratio / total)
+    val_test_count = total_count - train_count
+    if val_ratio + test_ratio == 0:
+        train_indices = [i for i in range(total_count)]
+        val_indices = test_indices = []
+    elif train_ratio + val_ratio == 0:
+        test_indices = [i for i in range(total_count)]
+        val_indices = train_indices = []
+    elif train_ratio + test_ratio == 0:
+        val_indices = [i for i in range(total_count)]
+        test_indices = train_indices = []
+    else:
+        val_count = int(val_test_count * val_ratio / (val_ratio + test_ratio))
 
         # Stratified sampling
         sss = StratifiedShuffleSplit(n_splits=1, test_size=val_test_count / total_count, random_state=SEED)
@@ -156,38 +114,113 @@ def get_dataloader(
         val_indices = val_test_indices[:val_count]
         test_indices = val_test_indices[val_count:]
 
-        train_data = [data[i] for i in train_indices]
-        train_extra = [extra[i] for i in train_indices]
-        val_data = [data[i] for i in val_indices]
-        val_extra = [extra[i] for i in val_indices]
-        test_data = [data[i] for i in test_indices]
-        test_extra = [extra[i] for i in test_indices]
+    train_data = [data[i] for i in train_indices]
+    train_extra = [extra[i] for i in train_indices]
+    val_data = [data[i] for i in val_indices]
+    val_extra = [extra[i] for i in val_indices]
+    test_data = [data[i] for i in test_indices]
+    test_extra = [extra[i] for i in test_indices]
+    return train_data, train_extra, val_data, val_extra, test_data, test_extra
+
+
+def get_dataloader_from_db(
+        db_path: str,
+        select: Dict,
+        target: List[str] | str,
+        target_func=None,
+        extra_features: List = None,
+        max_size=96 * 96,
+        **kwargs
+):
+    data, extra = get_data_from_db(
+        db_path,
+        select,
+        target,
+        target_func,
+        *(extra_features or []),
+        max_size=max_size
+    )
+    return get_dataloader([item[0] for item in data], [item[1] for item in data], extra, **kwargs)
+
+
+def get_dataloader(
+        structures,
+        labels,
+        extra,
+        extra_columns: List = None,
+        scaler_path: str | os.PathLike[str] = None,
+        save_path: str | os.PathLike[str] = '',
+        batch_size: int = 64,
+        train_val_test_ratio=(8, 2, 0),
+        target_size=(96, 96),
+        augment: bool = False,
+        drop_col: List[str] = None,
+        select_col: List[str] = None,
+        load_data: bool = True
+):
+    # save == '' indicates no save
+    assert len(train_val_test_ratio) == 3
+    train_dataset, val_dataset, test_dataset = None, None, None
+    train_loader_path = f'{save_path}/train_loader.pth'
+    val_loader_path = f'{save_path}/val_loader.pth'
+    test_loader_path = f'{save_path}/test_loader.pth'
+
+    torch.manual_seed(SEED)
+    random.seed(SEED)
+
+    picture_size = (target_size[0] * 2, target_size[1] * 2)
+    transform = RandomCropAndRotate3D(picture_size) if augment else None
+    if all(not os.path.exists(path) for path in
+           [train_loader_path, val_loader_path, test_loader_path]) or not load_data:
+        # Generate features
+        fx = FeatureExtract(dir_path=save_path)
+        df = fx.get_features(
+            data_structure=structures,
+            data_y=labels,
+            data_extra=extra,
+            extra_columns=extra_columns,
+            drop_col=drop_col,
+            select_col=select_col,
+        )
+
+        data = [[i, j] for i, j in zip(df['STRUCTURE'].to_numpy(), df['LABEL'].to_numpy())]
+        extra = df.iloc[:, :-2].to_numpy()
+
+        train_data, train_extra, val_data, val_extra, test_data, test_extra = _split_data(
+            data, extra, train_val_test_ratio
+        )
 
         # Scaler for train dataset only
-        train_dataset = CnnDataset(train_data, train_extra, transform=transform)
+        scaler = None
+        if scaler_path is not None and os.path.exists(f'{scaler_path}/scaler.joblib'):
+            scaler = joblib.load(f'{scaler_path}/scaler.joblib')
+        train_dataset = CnnDataset(train_data, train_extra, transform=transform, scaler=scaler)
         scaler = train_dataset.scaler
         save_path and joblib.dump(scaler, f'{save_path}/scaler.joblib')
         val_dataset = CnnDataset(val_data, val_extra, scaler=scaler)
         test_dataset = CnnDataset(test_data, test_extra, scaler=scaler)
 
+    train_loader, val_loader, test_loader = None, None, None
     # Load or save the dataset
     if os.path.exists(train_loader_path):
         train_loader = torch.load(train_loader_path)
         print('Load train data successfully!')
-    else:
+    elif train_dataset:
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
         save_path and torch.save(train_loader, train_loader_path)
+
     if os.path.exists(val_loader_path):
         val_loader = torch.load(val_loader_path)
         print('Load validation data successfully!')
-    else:
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    elif val_dataset:
+        val_loader = DataLoader(val_dataset, batch_size=len(val_dataset), shuffle=False)
         save_path and torch.save(val_loader, val_loader_path)
+
     if os.path.exists(test_loader_path):
         test_loader = torch.load(test_loader_path)
         print('Load test data successfully!')
-    else:
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    elif test_dataset:
+        test_loader = DataLoader(test_dataset, batch_size=len(test_dataset), shuffle=False)
         save_path and torch.save(test_loader, test_loader_path)
 
     return train_loader, val_loader, test_loader
@@ -197,6 +230,7 @@ def get_data_from_db(
         db: str,
         select: Dict,
         target: List[str] | str,
+        target_func=None,
         *args,
         max_size,
         target_range=(0, 8),
@@ -216,7 +250,10 @@ def get_data_from_db(
             continue
 
         try:
-            t = reduce(lambda x, y: x[y], target, row.data) if isinstance(target, list) else getattr(row, target)
+            if target_func is not None:
+                t = target_func(f'{structure.composition.reduced_formula}_{structure.get_space_group_info()[1]}')
+            else:
+                t = reduce(lambda x, y: x[y], target, row.data) if isinstance(target, list) else getattr(row, target)
             if t is None or t > target_range[1] or t < target_range[0]:
                 continue
 
@@ -234,7 +271,27 @@ def get_data_from_db(
 
 
 if __name__ == '__main__':
+    from pymatgen.core import Structure
     from plot_utils import plot_atoms
 
-    get_data_from_db('../datasets/c2db.db', {'selection': 'dos_at_ef_soc'},
-                     'dos_at_ef_soc', max_size=96 ** 2)
+    res, e = get_data_from_db('../datasets/c2db.db', {
+        'selection': 'gap_hse',
+        # 'filter': lambda row:
+        # getattr(row, 'hform', 1) <= 0.01 and getattr(
+        #     row, 'ehull', 1) <= 0.05 and getattr(
+        #     row, 'magmom', 0) == 0
+        #                       and getattr(row, 'gap_hse', None) is None
+        #                       and getattr(row, 'dynamic_stability_stiffness', False)
+        #                       and getattr(row, 'dynamic_stability_phonons', False)
+        # and getattr(row, 'natoms') <= 6
+        #                       and abs(row.gap_dir - row.gap) <= 1e-5
+    }, 'gap_hse', max_size=96 ** 2)
+    os.chdir('../gap_hse_dataset')
+    rows = []
+    for idx, (structure, target) in enumerate(res, 1):
+        structure: Structure
+        filename = f'{idx:0>6}.cif'
+        structure.to_file(filename, fmt='cif')
+        rows.append([filename, target])
+    df = pd.DataFrame(rows)
+    df.to_csv('id_prop.csv', index=False, header=False)

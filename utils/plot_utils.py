@@ -1,3 +1,4 @@
+import random
 from typing import Union, Tuple
 
 import torch
@@ -15,6 +16,7 @@ custom_style = {
     'font.serif': ['Times New Roman'],
     'font.weight': 'bold',
 }
+random.seed(1007)
 
 plt.style.use(custom_style)
 
@@ -24,6 +26,8 @@ def get_features_and_targets(dataset, columns):
     if isinstance(dataset, Dataset):
         dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
         features, targets = next(iter(dataloader))
+    elif isinstance(dataset, DataLoader):
+        _, features, targets = next(iter(dataset))
     else:
         features, targets = dataset[:, :-1], dataset[:, -1]
 
@@ -159,6 +163,19 @@ def plot_atoms(return_matrix):
     plt.close()
 
 
+def plot_true_predict(true_values, pred_values):
+    plt.figure(figsize=(8, 8), dpi=220)
+    sns.scatterplot(x=true_values, y=pred_values, color='#ef8a43')
+    plt.plot([0, 8], [0, 8], 'r--')
+    plt.xlabel('True Values')
+    plt.ylabel('Predicted Values')
+    plt.grid(True)
+    plt.xlim(0, 8)
+    plt.ylim(0, 8)
+    plt.show()
+    plt.close()
+
+
 def plot_true_predict_model(model, dataloader: Union[DataLoader, Tuple], model_load_path: str = None):
     # If dataloader is tuple, then plot train and test prediction in a figure
     if model_load_path is not None:
@@ -188,7 +205,7 @@ def plot_true_predict_model(model, dataloader: Union[DataLoader, Tuple], model_l
 def feature_corr(dataset, columns=None):
     """dataset must be single column feature."""
     df = get_features_and_targets(dataset, columns)
-    correlation_matrix = df.corr(method='spearman')
+    correlation_matrix = df.corr(method='pearson')
 
     # Generate a mask for the upper triangle
     mask = np.triu(np.ones_like(correlation_matrix, dtype=bool))
@@ -213,23 +230,39 @@ def feature_corr(dataset, columns=None):
     print(target_correlation)
 
 
+def plot_corr_scatter(feature1, feature2, limit: int = 300):
+    assert len(feature1) == len(feature2)
+    feature1, feature2 = np.asarray(feature1), np.asarray(feature2)
+    plt.figure(figsize=(8, 6), dpi=220)
+    if len(feature1) > limit:
+        indices = random.choices(range(len(feature1)), k=limit)
+        feature1, feature2 = feature1[indices], feature2[indices]
+
+    feature1 = [(idx, value) for idx, value in enumerate(feature1)]
+
+    feature1.sort(key=lambda item: item[1])
+    new_f1 = []
+    new_f2 = []
+    for idx, v in feature1:
+        new_f1.append(v)
+        new_f2.append(feature2[idx])
+
+    sns.scatterplot(new_f1, label='feature1')
+    sns.scatterplot(new_f2, label='feature2')
+    plt.legend()
+    plt.show()
+
+
 if __name__ == '__main__':
     from data_utils import MlpDataset, get_data_from_db
     from feature_utils import structure_to_feature, read_structure_file
 
-    # data, _ = get_data_from_db(
-    #     '../datasets/c2db.db',
-    #     select={'selection': 'workfunction'},
-    #     target='workfunction',
-    #     # select={},
-    #     # target=['results-asr.gs.json', 'kwargs', 'data', 'gap_nosoc']
-    #     max_size=96**2
-    # )
-    # # plot_hist(list(map(lambda x: x[1], data)), '', 'gap[eV]')
-    # dataset = MlpDataset(data)
-    # plot_hist(
-    #     np.hstack([i.cpu().numpy() for _, i in dataset]),
-    #     '',
-    #     'gap [eV]'
-    # )
-    plot_atoms(structure_to_feature((read_structure_file('POSCAR'))))
+    data, _ = get_data_from_db(
+        '../datasets/c2db.db',
+        select={'selection': 'gap_hse'},
+        target='gap_hse',
+        max_size=96**2
+    )
+    print(sum(np.array(list(map(lambda x: x[1], data))) >= 1))
+    plot_hist(list(map(lambda x: x[1], data)), '', 'Gap_HSE[eV]')
+    # plot_atoms(structure_to_feature((read_structure_file('POSCAR'))))

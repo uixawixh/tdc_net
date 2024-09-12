@@ -246,22 +246,28 @@ class TDCNet(nn.Module):
             cnn_model=None,
             mlp_attention=True,
             prior_func=None,
+            with_cnn=True,
     ):
         super().__init__()
 
         self.mlp_attention = mlp_attention
         self.cnn_model = cnn_model
         self.prior_func = prior_func
+        self.with_cnn = with_cnn
 
         # FNN layer
-        self.feat_fc = nn.Linear(num_features + cnn_features, 512)
+        features = num_features + cnn_features if with_cnn else num_features
+        self.feat_fc = nn.Linear(features, 512)
         self.hidden_fc1 = nn.Linear(512, 2048)
         self.output_fc = nn.Linear(2048, output_dim)
-        self.attention_layer_in = AttentionLayer(num_features + cnn_features)
+        self.attention_layer_in = AttentionLayer(features)
 
     def forward(self, x, features):
-        feat_out = self.cnn_model(x)
-        out = torch.cat((features, feat_out), dim=1)
+        if self.with_cnn:
+            feat_out = self.cnn_model(x)
+            out = torch.cat((features, feat_out), dim=1)
+        else:
+            out = features
         if self.mlp_attention:
             out = self.attention_layer_in(out)
         else:
@@ -452,37 +458,62 @@ def senet152(
     return TDCNet(128, num_features, output_dim, cnn_model, prior_func=prior_func, **kwargs)
 
 
+class WeightedMSELoss(nn.Module):
+    def __init__(self, underestimation_weight: Callable | float = 2.0):
+        super(WeightedMSELoss, self).__init__()
+        self.underestimation_weight = underestimation_weight
+        self.mse = nn.MSELoss(reduction='none')
+
+    def forward(self, predictions, targets, pbe_band_gaps):
+        mse_loss = self.mse(predictions, targets)
+
+        difference = pbe_band_gaps - predictions
+
+        weights = torch.ones_like(difference)
+        if callable(self.underestimation_weight):
+            weights = self.underestimation_weight(difference)
+        else:
+            weights[difference > 0] = self.underestimation_weight
+
+        weighted_loss = mse_loss * weights
+
+        return weighted_loss.mean()
+
+
 if __name__ == '__main__':
     import warnings
     from base_model import initialize_weights
     from utils.training_utils import train_and_eval
-    from utils.data_utils import get_dataloader
+    from utils.data_utils import get_dataloader_from_db
     from utils.plot_utils import plot_true_predict_model
 
     warnings.filterwarnings('ignore')
 
     # Prior 0 <= x <= 8, but need to avoid node dead
     model = simple_net(
-        num_features=74,
+        num_features=10,
         prior_func=lambda x: F.relu6(x) * 8 / 6,
-        in_channels=8,
+        in_channels=10,
+        with_cnn=True,
+        mlp_attention=True,
     )
     initialize_weights(model)
-    train_loader, val_loader, test_loader = get_dataloader(
+    train_loader, val_loader, test_loader = get_dataloader_from_db(
         '../datasets/c2db.db',
-        save_path='../datasets/test',
+        save_path='../datasets/hse_set_pbe',
         batch_size=64,
-        select={'selection': 'gap'},
-        target='gap',
-        # extra_features=['efermi', 'hform', 'evac', 'dos_at_ef_nosoc'],
+        select={'selection': 'gap_hse'},
+        target='gap_hse',
         train_val_test_ratio=(8, 2, 0),
+        extra_features=['gap_nosoc'],
     )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1.5e-3, weight_decay=0.4e-3)
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 20, 2, 0)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 50, 0.3)
-    criterion = nn.MSELoss()
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 50, 0.6)
+    criterion = WeightedMSELoss(lambda x: 0.5 * torch.relu(x) + 1)
 
     best_model_pth = train_and_eval(model, train_loader, val_loader, criterion, optimizer, scheduler=scheduler,
-                                    checkpoint_path='../checkpoints', start_epoch=1, num_epochs=150, checkpoint_step=50)
+                                    checkpoint_path='../checkpoints', start_epoch=1, num_epochs=150,
+                                    checkpoint_step=150)
     plot_true_predict_model(model, (train_loader, val_loader), best_model_pth)

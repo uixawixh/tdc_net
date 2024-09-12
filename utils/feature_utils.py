@@ -13,7 +13,7 @@ from tqdm import tqdm
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Structure, Element, Composition, Lattice
 
-from config import SCALE, SEED
+from config import SCALE
 
 MASS = 0
 ATOMIC_RADII = 1
@@ -71,11 +71,10 @@ class FeatureExtract:
     TRAIN = 'train_data'
     TEST = 'test_data'
 
-    def __init__(self, dir_path: str):
+    def __init__(self, dir_path: str = None):
         """
         :param dir_path: Read or save file.
         """
-        assert os.path.exists(dir_path)
         self.dir_path = dir_path
 
         self.columns = []
@@ -86,10 +85,12 @@ class FeatureExtract:
             data_y: Sequence[Any] = None,
             *,
             drop_col: List[str] = None,
+            select_col: List[str] = None,
             data_extra: Sequence[Sequence[float]] = None,
             extra_columns: List[str] = None,
             save: bool = True,
             picture_feature: bool = True,
+            with_label: bool = True,
     ):
         """
         If there are dataset files, read them
@@ -102,40 +103,53 @@ class FeatureExtract:
         if drop_col is None:
             drop_col = []
 
+        others = []
+        if picture_feature:
+            others.append('STRUCTURE')
+        if with_label:
+            others.append('LABEL')
+
         def get_data(path):
-            if os.path.exists(f'{self.dir_path}/{path}.zip'):
+            if self.dir_path is not None and os.path.exists(f'{self.dir_path}/{path}.zip'):
                 res = pd.read_csv(f'{self.dir_path}/{path}.zip')
                 self.columns = res.columns
-            elif os.path.exists(f'{self.dir_path}/{path}.csv'):
+            elif self.dir_path is not None and os.path.exists(f'{self.dir_path}/{path}.csv'):
                 res = pd.read_csv(f'{self.dir_path}/{path}.csv')
                 self.columns = res.columns
             else:
-                self.columns += extra_columns + ['STRUCTURE', 'LABEL']
+                self.columns.extend(extra_columns)
+                self.columns.extend(others)
 
                 res = pd.DataFrame(columns=self.columns)
                 if picture_feature:
                     res['STRUCTURE'] = pd.Series([structure_to_feature(x) for x in tqdm(
                         data_structure, "Converting structures to Matrix", total=len(data_structure), unit='row'
                     )])
-                res['LABEL'] = np.asarray(data_y)
+                if with_label:
+                    res['LABEL'] = np.asarray(data_y)
 
                 extra_features = np.array([single_column_descriptor(x) for x in tqdm(
                     data_structure, "Converting structures to Single", total=len(data_structure), unit='row'
                 )], dtype=np.float32)
                 if data_extra is not None:
                     extra_features = np.hstack([extra_features, np.array(data_extra)], dtype=np.float32)
-                res.iloc[:, :-2] = extra_features
 
-                zero_std_columns = check_zero_std(extra_features, self.columns)
-                highly_corr_columns = highly_correlated_columns(extra_features, self.columns)
-                index_drop = sorted(
-                    set(highly_corr_columns + zero_std_columns + [self.columns.index(i) for i in drop_col]),
-                    reverse=True
-                )
-                res.drop(columns=res.columns[index_drop], inplace=True)
-                for i in index_drop:
-                    self.columns.pop(i)
+                index = len(self.columns) - int(with_label) - int(picture_feature)
+                res.iloc[:, :index] = extra_features
 
+                if select_col:
+                    self.columns = select_col + others
+                    res = res[self.columns]
+                else:
+                    zero_std_columns = check_zero_std(extra_features, self.columns)
+                    highly_corr_columns = highly_correlated_columns(extra_features, self.columns)
+                    index_drop = sorted(
+                        set(highly_corr_columns + zero_std_columns + [self.columns.index(i) for i in drop_col]),
+                        reverse=True
+                    )
+                    res.drop(columns=res.columns[index_drop], inplace=True)
+                    for i in index_drop:
+                        self.columns.pop(i)
             return res
 
         # Generate all columns of cif features
@@ -161,7 +175,7 @@ class FeatureExtract:
 
         # Generate train dataset
         train = get_data(self.TRAIN)
-        if save:
+        if save and self.dir_path is not None:
             self.save(train)
 
         return train
@@ -169,8 +183,10 @@ class FeatureExtract:
     def save(self, train: pd.DataFrame, test: Optional[pd.DataFrame] = None, compression: bool = True):
         """ Save datasets, only save the single features """
         train = train.drop(['STRUCTURE'], axis=1, errors='ignore')
+
         if test is not None:
             test = test.drop(['STRUCTURE'], axis=1, inplace=True, errors='ignore')
+
         if compression:
             train.to_csv(f'{self.dir_path}/{self.TRAIN}.zip', index=False,
                          compression={'method': 'zip', 'archive_name': f'{self.TRAIN}.csv'})
@@ -321,8 +337,17 @@ def get_vacuum_layer_thickness(structure: Structure) -> float:
     max_z = max(z_coords)
     min_z = min(z_coords)
 
+    max_vdw_radius = max([float(Element(site.specie.symbol).atomic_radius) / 2 for site in structure.sites if
+                          site.frac_coords[2] == max_z])
+    min_vdw_radius = max([float(Element(site.specie.symbol).atomic_radius) / 2 for site in structure.sites if
+                          site.frac_coords[2] == min_z])
+
+    t = max_vdw_radius
+    if max_z - min_z > 0:
+        t += min_vdw_radius
+
     layer_thickness = (max_z - min_z) * c
-    return min(c - layer_thickness, 1)  # Avoid dividing zero
+    return c - layer_thickness - t
 
 
 def get_structure_features(structure: Structure) -> np.ndarray:
@@ -333,26 +358,14 @@ def get_structure_features(structure: Structure) -> np.ndarray:
     structure_features = np.array(
         [
             structure.get_space_group_info()[1],
-            structure.lattice.gamma % 90,
+            structure.lattice.gamma,
             a,
             b,
             c - vacuum,
             structure.volume / c,
-            structure.density * (c - vacuum) / c,
+            structure.density * c / (c - vacuum),
         ]
     )
-
-    # distances = []
-    # nn = CrystalNN()
-    # for i in range(len(structure)):
-    #     nn_info = nn.get_nn_info(structure, i)
-    #     for neighbor in nn_info:
-    #         site = neighbor['site']
-    #         distances.append(structure[neighbor['site_index']].distance(site))
-    # structure_features = np.hstack([
-    #     structure_features,
-    #     get_statistical_features(distances)
-    # ], dtype=np.float32)
 
     return structure_features
 
@@ -367,6 +380,10 @@ def single_column_descriptor(structure: Structure) -> np.ndarray:
         structure_features
     ], dtype=np.float32)
     return features
+
+
+def batch_column_descriptor(structures: Sequence[Structure]) -> List[np.ndarray]:
+    return [single_column_descriptor(structure) for structure in structures]
 
 
 def read_structure_file(filename: Union[str, Atoms]) -> Structure:
@@ -551,6 +568,8 @@ def structure_to_feature(
             [element.boiling_point * 0.03, pending[0], pending[1]],
             [element.melting_point * 0.06, pending[0], pending[1]],
             [element.mendeleev_no * 2.2, pending[0], pending[1]],
+            [element.max_oxidation_state * 30, pending[0], pending[1]],
+            [element.min_oxidation_state * 100, pending[0], pending[1]],
         ]
         if z - prev_z > tolerance:
             unmerged_list.append([cur])
@@ -567,7 +586,7 @@ def structure_to_feature(
         left -= tmp
         right += merge_num - tmp
 
-    return_matrix = np.zeros((8, n, height, width), dtype=np.float32)
+    return_matrix = np.zeros((10, n, height, width), dtype=np.float32)
     # fill the picture
     for idx, item in enumerate(unmerged_list):
         if left <= idx < right:
