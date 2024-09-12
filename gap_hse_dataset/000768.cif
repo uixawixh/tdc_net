@@ -1,0 +1,42 @@
+# generated using pymatgen
+data_ZnH2SeO4
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   4.86843568
+_cell_length_b   5.77225874
+_cell_length_c   33.86505036
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   93.55593169
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   ZnH2SeO4
+_chemical_formula_sum   'Zn2 H4 Se2 O8'
+_cell_volume   949.83902986
+_cell_formula_units_Z   2
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Zn  Zn0  1  0.36588614  0.86115896  0.49223305  1
+  Zn  Zn1  1  0.86588614  0.36115896  0.50776695  1
+  Se  Se2  1  0.44180023  0.36912991  0.44209909  1
+  Se  Se3  1  0.94180023  0.86912991  0.55790091  1
+  O  O4  1  0.58056530  0.15727552  0.47258255  1
+  O  O5  1  0.08056530  0.65727552  0.52741745  1
+  O  O6  1  0.09204721  0.10616690  0.53199375  1
+  O  O7  1  0.59204721  0.60616690  0.46800625  1
+  O  O8  1  0.60264584  0.85648363  0.54576851  1
+  O  O9  1  0.10264584  0.35648363  0.45423149  1
+  O  O10  1  0.57338053  0.37253199  0.55461430  1
+  H  H11  1  0.41023243  0.26477478  0.54962008  1
+  H  H12  1  0.50570705  0.53027087  0.55361228  1
+  O  O13  1  0.07338053  0.87253199  0.44538570  1
+  H  H14  1  0.91023243  0.76477478  0.45037992  1
+  H  H15  1  0.00570705  0.03027087  0.44638772  1

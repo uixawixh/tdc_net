@@ -1,0 +1,38 @@
+# generated using pymatgen
+data_HgPt2Se3
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   7.50958160
+_cell_length_b   7.50971706
+_cell_length_c   23.71426370
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   120.00059673
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   HgPt2Se3
+_chemical_formula_sum   'Hg2 Pt4 Se6'
+_cell_volume   1158.18245227
+_cell_formula_units_Z   2
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Hg  Hg0  1  0.66666520  0.33333260  0.42613037  1
+  Se  Se1  1  0.66320284  0.83160142  0.44584758  1
+  Se  Se2  1  0.16839837  0.33679705  0.44584755  1
+  Se  Se3  1  0.16839837  0.83160132  0.44584755  1
+  Pt  Pt4  1  0.00000000  -0.00000000  0.50000000  1
+  Pt  Pt5  1  0.50000000  0.00000000  0.50000000  1
+  Pt  Pt6  1  0.50000000  0.50000000  0.50000000  1
+  Pt  Pt7  1  0.00000000  0.50000000  0.50000000  1
+  Hg  Hg8  1  0.33333480  0.66666740  0.57386963  1
+  Se  Se9  1  0.33679716  0.16839858  0.55415242  1
+  Se  Se10  1  0.83160163  0.66320295  0.55415245  1
+  Se  Se11  1  0.83160163  0.16839868  0.55415245  1

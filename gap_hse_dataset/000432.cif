@@ -1,0 +1,38 @@
+# generated using pymatgen
+data_NbTe4Ir
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   3.79306055
+_cell_length_b   12.56547527
+_cell_length_c   33.96233100
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   90.00000000
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   NbTe4Ir
+_chemical_formula_sum   'Nb2 Te8 Ir2'
+_cell_volume   1618.69932578
+_cell_formula_units_Z   2
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Nb  Nb0  1  0.00000000  0.79827261  0.50291582  1
+  Te  Te1  1  0.50000000  0.74325822  0.55910170  1
+  Nb  Nb2  1  0.50000000  0.11941871  0.49663744  1
+  Te  Te3  1  0.50000000  0.91566514  0.45587386  1
+  Te  Te4  1  -0.00000000  0.17457349  0.44047517  1
+  Ir  Ir5  1  0.00000000  0.31392374  0.50087717  1
+  Te  Te6  1  0.00000000  0.50315156  0.53944059  1
+  Te  Te7  1  0.50000000  0.26200742  0.55460291  1
+  Ir  Ir8  1  0.50000000  0.60379226  0.49870773  1
+  Te  Te9  1  0.00000000  0.65563323  0.44498527  1
+  Te  Te10  1  0.50000000  0.41458323  0.46018168  1
+  Te  Te11  1  0.00000000  1.00202659  0.54365248  1

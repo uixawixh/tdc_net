@@ -1,0 +1,35 @@
+# generated using pymatgen
+data_Re(AgBr3)2
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   7.08634740
+_cell_length_b   7.08697434
+_cell_length_c   17.73584758
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   119.99707367
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   Re(AgBr3)2
+_chemical_formula_sum   'Re1 Ag2 Br6'
+_cell_volume   771.39831275
+_cell_formula_units_Z   1
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Re  Re0  1  0.95429223  0.95429267  0.50002727  1
+  Ag  Ag1  1  0.28734577  0.62092746  0.50062228  1
+  Ag  Ag2  1  0.62127620  0.28778459  0.49931317  1
+  Br  Br3  1  0.66255814  0.95491868  0.58293312  1
+  Br  Br4  1  0.24664329  0.24588187  0.58294172  1
+  Br  Br5  1  0.95337111  0.66194464  0.58299737  1
+  Br  Br6  1  0.24605554  0.95370761  0.41708929  1
+  Br  Br7  1  0.66203822  0.66283329  0.41704600  1
+  Br  Br8  1  0.95521260  0.24669200  0.41703522  1

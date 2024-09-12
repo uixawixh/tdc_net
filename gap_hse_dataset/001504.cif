@@ -1,0 +1,32 @@
+# generated using pymatgen
+data_CrBrCl
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   7.62058340
+_cell_length_b   4.02605599
+_cell_length_c   19.50000000
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   121.87656331
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   CrBrCl
+_chemical_formula_sum   'Cr2 Br2 Cl2'
+_cell_volume   508.04990536
+_cell_formula_units_Z   2
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Cr  Cr0  1  -0.00378237  0.01481762  0.49680441  1
+  Br  Br1  1  0.31111922  0.22475872  0.57167544  1
+  Cl  Cl2  1  0.19221210  0.59330400  0.42851351  1
+  Cr  Cr3  1  0.49627903  -0.02206372  0.49683012  1
+  Br  Br4  1  0.81117140  0.39856804  0.57160463  1
+  Cl  Cl5  1  0.69223300  0.79139996  0.42840595  1

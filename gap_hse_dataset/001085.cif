@@ -1,0 +1,42 @@
+# generated using pymatgen
+data_CdH2SeO4
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   5.04220380
+_cell_length_b   6.04898379
+_cell_length_c   34.12349480
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   90.00123957
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   CdH2SeO4
+_chemical_formula_sum   'Cd2 H4 Se2 O8'
+_cell_volume   1040.77372537
+_cell_formula_units_Z   2
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Cd  Cd0  1  0.44308933  0.88700155  0.49047502  1
+  Cd  Cd1  1  0.94308933  0.38700155  0.50952498  1
+  Se  Se2  1  0.53330334  0.38700380  0.43834062  1
+  Se  Se3  1  0.03330334  0.88700380  0.56165938  1
+  O  O4  1  0.71523469  0.88700889  0.54668909  1
+  O  O5  1  0.21523469  0.38700889  0.45331091  1
+  O  O6  1  0.68375186  0.17072687  0.46493009  1
+  O  O7  1  0.18375263  0.10327854  0.53506965  1
+  O  O8  1  0.68375263  0.60327854  0.46493035  1
+  O  O9  1  0.18375186  0.67072687  0.53506991  1
+  O  O10  1  0.11151507  0.88700203  0.44219954  1
+  O  O11  1  0.61151507  0.38700203  0.55780046  1
+  H  H12  1  0.49260376  0.51555216  0.55429780  1
+  H  H13  1  0.49261299  0.25845003  0.55429748  1
+  H  H14  1  -0.00738701  0.75845003  0.44570252  1
+  H  H15  1  -0.00739624  0.01555216  0.44570220  1

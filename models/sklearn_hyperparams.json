@@ -1,0 +1,40 @@
+{
+    "Linear Model": {
+        "polynomialfeatures__degree": 3,
+        "ridge__alpha": 10
+    },
+    "KNN": {
+        "kneighborsregressor__algorithm": "ball_tree",
+        "kneighborsregressor__n_neighbors": 5,
+        "kneighborsregressor__weights": "uniform"
+    },
+    "SVR": {
+        "svr__C": 10,
+        "svr__degree": 2,
+        "svr__kernel": "rbf"
+    },
+    "Random Forest": {
+        "randomforestregressor__max_depth": null,
+        "randomforestregressor__max_features": "sqrt",
+        "randomforestregressor__min_samples_leaf": 1,
+        "randomforestregressor__min_samples_split": 4,
+        "randomforestregressor__n_estimators": 500
+    },
+    "GBDT": {
+        "gradientboostingregressor__max_depth": 7,
+        "gradientboostingregressor__max_features": "sqrt",
+        "gradientboostingregressor__min_samples_leaf": 1,
+        "gradientboostingregressor__min_samples_split": 4,
+        "gradientboostingregressor__n_estimators": 100,
+        "gradientboostingregressor__subsample": 1.0
+    },
+    "XGBoost": {
+        "xgbregressor__gamma": 0.1,
+        "xgbregressor__learning_rate": 0.1,
+        "xgbregressor__max_depth": 6,
+        "xgbregressor__min_child_weight": 1,
+        "xgbregressor__n_estimators": 100,
+        "xgbregressor__reg_lambda": 1e-05,
+        "xgbregressor__subsample": 0.8
+    }
+}

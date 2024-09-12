@@ -1,0 +1,30 @@
+# generated using pymatgen
+data_ZnTe
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   4.32934714
+_cell_length_b   4.33025742
+_cell_length_c   18.85580293
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   119.99304637
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   ZnTe
+_chemical_formula_sum   'Zn2 Te2'
+_cell_volume   306.15560429
+_cell_formula_units_Z   2
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Te  Te0  1  0.00000627  0.00003723  0.40033203  1
+  Te  Te1  1  0.33332714  0.66662945  0.59972674  1
+  Zn  Zn2  1  -0.00001321  0.00006030  0.54940861  1
+  Zn  Zn3  1  0.33334651  0.66660629  0.45066880  1

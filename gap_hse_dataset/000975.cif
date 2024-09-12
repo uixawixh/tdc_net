@@ -1,0 +1,33 @@
+# generated using pymatgen
+data_CdPb2(ClO)2
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   3.88166848
+_cell_length_b   6.49311910
+_cell_length_c   33.84208688
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   107.39192513
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   CdPb2(ClO)2
+_chemical_formula_sum   'Cd1 Pb2 Cl2 O2'
+_cell_volume   813.96529643
+_cell_formula_units_Z   1
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  O  O0  1  0.70616503  0.41233006  0.48645477  1
+  Pb  Pb1  1  0.79610438  0.59220876  0.54549688  1
+  Cd  Cd2  1  0.53319355  0.06638710  0.50000000  1
+  Cl  Cl3  1  -0.00642643  -0.01285286  0.44418230  1
+  Pb  Pb4  1  0.27028268  0.54056537  0.45450311  1
+  Cl  Cl5  1  0.07281380  0.14562761  0.55581770  1
+  O  O6  1  0.36022203  0.72044406  0.51354522  1

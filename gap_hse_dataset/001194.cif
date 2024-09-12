@@ -1,0 +1,36 @@
+# generated using pymatgen
+data_MnSbS2Br
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   3.72070516
+_cell_length_b   10.87972139
+_cell_length_c   35.29483545
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   90.00000000
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   MnSbS2Br
+_chemical_formula_sum   'Mn2 Sb2 S4 Br2'
+_cell_volume   1428.74325112
+_cell_formula_units_Z   2
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Mn  Mn0  1  0.50000000  0.45439191  0.50000004  1
+  Sb  Sb1  1  -0.00000000  0.73998167  0.44070357  1
+  Sb  Sb2  1  -0.00000000  0.16880063  0.55929655  1
+  S  S3  1  0.50000000  0.70059781  0.48851761  1
+  S  S4  1  0.50000000  0.20818520  0.51148232  1
+  Br  Br5  1  -0.00000000  0.42616418  0.44769196  1
+  Br  Br6  1  -0.00000000  0.48261858  0.55230808  1
+  S  S7  1  0.00000000  0.95002639  0.54916578  1
+  Mn  Mn8  1  0.50000000  0.95439134  0.49999995  1
+  S  S9  1  0.00000000  -0.04124385  0.45083418  1

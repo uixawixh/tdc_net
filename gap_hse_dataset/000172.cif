@@ -1,0 +1,31 @@
+# generated using pymatgen
+data_Sr(HO)2
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   3.91791917
+_cell_length_b   3.91979082
+_cell_length_c   19.20851046
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   119.98174124
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   Sr(HO)2
+_chemical_formula_sum   'Sr1 H2 O2'
+_cell_volume   255.51862339
+_cell_formula_units_Z   1
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  O  O0  1  0.33314392  0.65860070  0.56166260  1
+  H  H1  1  0.33116048  0.65709906  0.61214671  1
+  Sr  Sr2  1  0.00002425  0.99233576  0.50001072  1
+  O  O3  1  0.66694673  0.32598235  0.43833449  1
+  H  H4  1  0.66887424  0.32616495  0.38784948  1

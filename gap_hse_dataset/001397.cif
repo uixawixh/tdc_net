@@ -1,0 +1,36 @@
+# generated using pymatgen
+data_MnSbS2Cl
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   3.63925645
+_cell_length_b   11.37512942
+_cell_length_c   35.19677800
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   90.00000000
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   MnSbS2Cl
+_chemical_formula_sum   'Mn2 Sb2 S4 Cl2'
+_cell_volume   1457.04147844
+_cell_formula_units_Z   2
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Sb  Sb0  1  0.00000000  0.25878027  0.44572266  1
+  Sb  Sb1  1  -0.00000000  0.75878027  0.55427734  1
+  Mn  Mn2  1  0.50000000  0.53312568  0.49432521  1
+  Mn  Mn3  1  0.50000000  0.03312568  0.50567479  1
+  S  S4  1  0.50000000  0.30561644  0.49361888  1
+  S  S5  1  0.50000000  0.80561644  0.50638112  1
+  S  S6  1  -0.00000000  0.55004116  0.54381314  1
+  Cl  Cl7  1  -0.00000000  0.55343670  0.44635848  1
+  Cl  Cl8  1  0.00000000  0.05343670  0.55364152  1
+  S  S9  1  -0.00000000  0.05004116  0.45618686  1

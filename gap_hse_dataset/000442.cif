@@ -1,0 +1,36 @@
+# generated using pymatgen
+data_ScAg(PS3)2
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   6.21956941
+_cell_length_b   6.21957414
+_cell_length_c   33.32484660
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   119.99163839
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   ScAg(PS3)2
+_chemical_formula_sum   'Sc1 Ag1 P2 S6'
+_cell_volume   1116.49387522
+_cell_formula_units_Z   1
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  S  S0  1  0.00106740  0.00099814  0.44951943  1
+  S  S1  1  0.64199994  0.37015061  0.44951748  1
+  S  S2  1  0.27284718  0.64192912  0.44951811  1
+  S  S3  1  0.64200245  0.64193268  0.55048072  1
+  S  S4  1  0.00107127  0.37015306  0.55048193  1
+  S  S5  1  0.27285014  0.00100049  0.55048233  1
+  Ag  Ag6  1  0.63860718  0.00439271  0.50000000  1
+  Sc  Sc7  1  0.30530614  0.33769211  0.50000000  1
+  P  P8  1  0.97197859  0.67103010  0.46658232  1
+  P  P9  1  0.97196961  0.67102115  0.53341768  1

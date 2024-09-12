@@ -1,0 +1,41 @@
+# generated using pymatgen
+data_Zn2Fe(CN)6
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   7.68914408
+_cell_length_b   7.70499875
+_cell_length_c   34.60598048
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   119.98806287
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   Zn2Fe(CN)6
+_chemical_formula_sum   'Zn2 Fe1 C6 N6'
+_cell_volume   1775.76130568
+_cell_formula_units_Z   1
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Zn  Zn0  1  0.33594003  0.66923275  0.55175668  1
+  C  C1  1  0.55045465  0.45036030  0.53046984  1
+  C  C2  1  0.55297334  0.10183032  0.53084539  1
+  C  C3  1  0.90165802  0.45287169  0.53005237  1
+  N  N4  1  0.47563273  0.52592795  0.54820696  1
+  N  N5  1  0.47940225  0.95210470  0.54873809  1
+  N  N6  1  0.05292178  0.52988215  0.54753635  1
+  Zn  Zn7  1  -0.00243728  0.99755865  0.44824638  1
+  Fe  Fe8  1  0.66677583  0.33342937  0.50000164  1
+  C  C9  1  0.78325709  0.21659799  0.46953586  1
+  C  C10  1  0.78047001  0.56493994  0.46916010  1
+  C  C11  1  0.43186169  0.21402771  0.46994533  1
+  N  N12  1  0.85785759  0.14081935  0.45179760  1
+  N  N13  1  0.85414369  0.71461157  0.45125039  1
+  N  N14  1  0.28056053  0.13692566  0.45247395  1

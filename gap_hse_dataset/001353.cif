@@ -1,0 +1,38 @@
+# generated using pymatgen
+data_Hf3TiTe8
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   7.74849031
+_cell_length_b   6.69620797
+_cell_length_c   18.73210380
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   90.00000000
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   Hf3TiTe8
+_chemical_formula_sum   'Hf3 Ti1 Te8'
+_cell_volume   971.92462006
+_cell_formula_units_Z   1
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Ti  Ti0  1  0.00074065  -0.00003619  0.49950799  1
+  Hf  Hf1  1  0.50078211  0.00209451  0.50000637  1
+  Hf  Hf2  1  0.24969586  0.50014101  0.49995766  1
+  Hf  Hf3  1  0.75244693  0.50012598  0.49995261  1
+  Te  Te4  1  0.00103721  0.32461527  0.40238239  1
+  Te  Te5  1  0.24399968  0.83768497  0.59715394  1
+  Te  Te6  1  0.00100887  0.32342496  0.59723951  1
+  Te  Te7  1  0.24436210  0.83820257  0.40253437  1
+  Te  Te8  1  0.50104097  0.33677866  0.40038215  1
+  Te  Te9  1  0.75720907  0.83774957  0.59716821  1
+  Te  Te10  1  0.50101411  0.33629888  0.59961785  1
+  Te  Te11  1  0.75724934  0.83833184  0.40255203  1

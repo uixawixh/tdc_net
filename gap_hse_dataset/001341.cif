@@ -1,0 +1,33 @@
+# generated using pymatgen
+data_Ag2MoSe4
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   6.01595011
+_cell_length_b   6.01594946
+_cell_length_c   17.61186089
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   90.00000000
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   Ag2MoSe4
+_chemical_formula_sum   'Ag2 Mo1 Se4'
+_cell_volume   637.40233628
+_cell_formula_units_Z   1
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Mo  Mo0  1  0.94118937  0.96735935  0.50001326  1
+  Ag  Ag1  1  0.94124532  0.46732742  0.49998145  1
+  Ag  Ag2  1  0.44122011  0.96730648  0.49998147  1
+  Se  Se3  1  0.15917624  0.74937414  0.41456772  1
+  Se  Se4  1  0.72322405  0.18532630  0.41454958  1
+  Se  Se5  1  0.72314230  0.74925853  0.58545927  1
+  Se  Se6  1  0.15928849  0.18540479  0.58546050  1

@@ -1,0 +1,38 @@
+# generated using pymatgen
+data_AgAuCl4
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   4.44186382
+_cell_length_b   13.22128557
+_cell_length_c   33.07712046
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   90.00002924
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   AgAuCl4
+_chemical_formula_sum   'Ag2 Au2 Cl8'
+_cell_volume   1942.52501465
+_cell_formula_units_Z   2
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Cl  Cl0  1  0.00513871  0.31940684  0.45734465  1
+  Cl  Cl1  1  0.62007496  0.81940527  0.45734536  1
+  Cl  Cl2  1  0.22968368  0.55759938  0.45900810  1
+  Cl  Cl3  1  0.39553186  0.05760070  0.45900871  1
+  Cl  Cl4  1  0.00513916  0.01275475  0.54265577  1
+  Cl  Cl5  1  0.62007414  0.51275641  0.54265497  1
+  Cl  Cl6  1  0.22968288  0.77456242  0.54099230  1
+  Cl  Cl7  1  0.39553234  0.27456221  0.54099138  1
+  Ag  Ag8  1  0.80656712  0.66608206  0.50000026  1
+  Ag  Ag9  1  0.81864652  0.16608265  0.50000027  1
+  Au  Au10  1  0.31260121  0.91608039  0.49999970  1
+  Au  Au11  1  0.31260306  0.41608157  0.50000025  1
