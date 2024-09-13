@@ -5,7 +5,24 @@ import sys
 import pathlib
 import argparse
 
+import joblib
+import torch
+import numpy as np
+import pandas as pd
+from torch import nn
+from pymatgen.core import Structure
+from xgboost import XGBClassifier, XGBRegressor
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, roc_auc_score, mean_squared_error, r2_score, mean_absolute_error
+
 import config
+from utils.feature_utils import FeatureExtract
+from models.tdc_net import simple_net
+from models.base_model import initialize_weights
+from utils.training_utils import train_and_eval
+from utils.data_utils import get_dataloader
 
 parser = argparse.ArgumentParser(description='Two-Dimensional Crystal Neural Networks')
 
@@ -55,6 +72,41 @@ hyperparam_group.add_argument('--step-gamma', default=0.6, type=float,
 hyperparam_group.add_argument('--augment', action='store_true',
                               help='Picture data augment')
 
+xgb_hyperparam_group = parser.add_argument_group('XGBoost Hyperparameters')
+
+xgb_hyperparam_group.add_argument('-lr', '--learning-rate', default=0.01, type=float,
+                                  help='Learning rate (shrinkage factor) to prevent overfitting (default: 0.01)')
+xgb_hyperparam_group.add_argument('--n-estimators', default=100, type=int,
+                                  help='Number of boosting rounds/trees (default: 100)')
+xgb_hyperparam_group.add_argument('--max-depth', default=3, type=int,
+                                  help='Maximum depth of a tree (default: 3). Higher depth can lead to overfitting')
+xgb_hyperparam_group.add_argument('--min-child-weight', default=3, type=int,
+                                  help='Minimum sum of instance weight (hessian) needed in a child (default: 3)')
+xgb_hyperparam_group.add_argument('--gamma', default=0.1, type=float,
+                                  help='Minimum loss reduction required to make a further partition (default: 0.1)')
+xgb_hyperparam_group.add_argument('--subsample', default=1.0, type=float,
+                                  help='Subsample ratio of the training instances (default: 1.0, full data)')
+xgb_hyperparam_group.add_argument('--colsample-bytree', default=1.0, type=float,
+                                  help='Subsample ratio of columns when constructing each tree '
+                                       '(default: 1.0, full features)')
+xgb_hyperparam_group.add_argument('--reg-lambda', default=1e-5, type=float,
+                                  help='L2 regularization term on weights (default: 1e-5). '
+                                       'Helps control model complexity')
+xgb_hyperparam_group.add_argument('--reg-alpha', default=0.0, type=float,
+                                  help='L1 regularization term on weights (default: 0.0). '
+                                       'Encourages sparsity')
+xgb_hyperparam_group.add_argument('--scale-pos-weight', default=1, type=int,
+                                  help='Balancing of positive and negative weights. Used for imbalanced datasets '
+                                       '(default: 1)')
+
+xgb_hyperparam_group = parser.add_argument_group('XGBoost Settings')
+
+xgb_hyperparam_group.add_argument('-cv', '--cross-validate', default=5, type=int)
+xgb_hyperparam_group.add_argument('--use-grid-search', action='store_true',
+                                  help='Use grid search to get best hyperparams')
+
+parser.add_argument('--no-scaler', action='store_true', help='Do not use scaler')
+
 parser.add_argument('--no-save', action='store_true',
                     help='Do not save the model param, scaler param and the split result')
 
@@ -69,6 +121,12 @@ def main():
 
     if task == 'regression' and model_name == 'tdcnet':
         train_tdc_net()
+    elif task == 'regression' and model_name == 'xgboost':
+        pass
+    elif task == 'classification' and model_name == 'xgboost':
+        pass
+    else:
+        raise
 
 
 def generate_features_from_structures(structures):
@@ -81,17 +139,6 @@ def generate_features_from_structures(structures):
 
 
 def train_tdc_net(id_target_csv: str = 'id_prop.csv'):
-    import torch
-    import numpy as np
-    import pandas as pd
-    from torch import nn
-    from pymatgen.core import Structure
-
-    from models.tdc_net import simple_net
-    from models.base_model import initialize_weights
-    from utils.training_utils import train_and_eval
-    from utils.data_utils import get_dataloader
-
     global args
 
     dir_path = args.dataset_dir_path
@@ -107,6 +154,163 @@ def train_tdc_net(id_target_csv: str = 'id_prop.csv'):
     df = pd.read_csv(csv_path, dtype=np.object_)
     n_extra_features = max(df.shape[1] - 2, 0)
 
+    structures, extra_features, labels = get_structures_extra_labels(df, path, n_extra_features)
+    datasets_dir = path / 'datasets'
+    os.makedirs(datasets_dir, exist_ok=True)
+    train_loader, val_loader, test_loader = get_dataloader(
+        structures,
+        labels,
+        extra_features,
+        extra_columns=df.iloc[:, 1:-1].columns if n_extra_features > 0 else None,
+        scaler_path=datasets_dir,
+        save_path=None if args.no_save else datasets_dir,
+        batch_size=args.batch_size,
+        train_val_test_ratio=(args.train_ratio, args.val_ratio, args.test_ratio),
+        augment=args.augment,
+        load_data=not args.no_load_data,
+        use_scaler=not args.no_scaler,
+    )
+    structure_feature, tabular_features, _ = next(iter(train_loader))
+
+    model = simple_net(
+        num_features=tabular_features.shape[1],
+        in_channels=structure_feature.shape[1],
+    )
+    initialize_weights(model)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.step_size, args.step_gamma)
+    if args.task == 'regression':
+        criterion = nn.MSELoss()
+    else:
+        criterion = nn.NLLLoss()
+
+    train_and_eval(
+        model,
+        train_loader,
+        val_loader,
+        criterion,
+        optimizer,
+        scheduler=scheduler,
+        checkpoint_path=ckpt_dir,
+        checkpoint_step=1,
+        start_epoch=1,
+        num_epochs=args.epochs,
+    )
+
+
+def train_xgboost(id_target_csv: str = 'id_prop.csv'):
+    global args
+
+    dir_path = args.dataset_dir_path
+    path = pathlib.Path(dir_path)
+    if not path.exists() or not path.is_dir():
+        raise NotADirectoryError(f'Check the {dir_path}!')
+
+    params = {
+        'learning_rate': args.learning_rate,
+        'n_estimators': args.n_estimators,
+        'max_depth': args.max_depth,
+        'min_child_weight': args.min_child_weight,
+        'gamma': args.gamma,
+        'subsample': args.subsample,
+        'colsample_bytree': args.colsample_bytree,
+        'reg_lambda': args.reg_lambda,
+        'reg_alpha': args.reg_alpha,
+        'scale_pos_weight': args.scale_pos_weight
+    }
+    if args.task == 'regression':
+        model = XGBRegressor(**params)
+    else:
+        model = XGBClassifier(**params)
+
+    if not args.no_scaler:
+        model = make_pipeline(
+            MinMaxScaler(),
+            model
+        )
+
+    csv_path = pathlib.Path(path / id_target_csv)
+    if not csv_path.exists():
+        raise FileNotFoundError(f'You need a file named {id_target_csv}')
+    df = pd.read_csv(csv_path, dtype=np.object_)
+    n_extra_features = max(df.shape[1] - 2, 0)
+
+    fe = FeatureExtract(dir_path)
+    structures, extra_features, labels = get_structures_extra_labels(df, path, n_extra_features)
+    df_features = fe.get_features(
+        structures,
+        labels,
+        data_extra=extra_features,
+        extra_columns=list(df.columns)[1:-1] if n_extra_features > 0 else None,
+        save=False,
+        picture_feature=False,
+        with_label=True,
+    )
+
+    X, y = df_features.iloc[:, :-1].to_numpy(), df_features.iloc[:, -1].to_numpy()
+    temp_size = args.test_ratio + args.val_ratio
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=temp_size, random_state=config.SEED)
+    if args.test_ratio != 0:
+        X_val, X_test, y_val, y_test = train_test_split(X_val, y_val,
+                                                        test_size=temp_size - args.val_ratio,
+                                                        random_state=config.SEED)
+        pd.DataFrame(np.hstack([X_test, y_test]), columns=df_features.columns).to_csv(dir_path / 'test.csv')
+
+    pd.DataFrame(np.hstack([X_train, y_train]), columns=df_features.columns).to_csv(dir_path / 'train.csv')
+    pd.DataFrame(np.hstack([X_val, y_val]), columns=df_features.columns).to_csv(dir_path / 'val.csv')
+    print('The data has been generated!')
+
+    model.fit(X_train, y_train)
+    if not args.no_save:
+        joblib.dump(model, 'xgboost.joblib')
+
+    evaluate_model(model, X_train, y_train, X_val, y_val, args.task)
+
+
+def evaluate_model(model, X_train, y_train, X_test, y_test, task_type):
+    if task_type == 'classification':
+        y_train_pred = model.predict(X_train)
+        train_accuracy = accuracy_score(y_train, y_train_pred)
+
+        y_test_pred = model.predict(X_test)
+        test_accuracy = accuracy_score(y_test, y_test_pred)
+
+        try:
+            y_train_pred_prob = model.predict_proba(X_train)[:, 1]
+            train_auc = roc_auc_score(y_train, y_train_pred_prob)
+
+            y_test_pred_prob = model.predict_proba(X_test)[:, 1]
+            test_auc = roc_auc_score(y_test, y_test_pred_prob)
+        except AttributeError:
+            train_auc = "N/A (No probability prediction)"
+            test_auc = "N/A (No probability prediction)"
+
+        print(f"Train Accuracy: {train_accuracy:.4f}")
+        print(f"Train AUC: {train_auc}")
+        print(f"Test Accuracy: {test_accuracy:.4f}")
+        print(f"Test AUC: {test_auc}")
+
+    elif task_type == 'regression':
+        y_train_pred = model.predict(X_train)
+        train_r2 = r2_score(y_train, y_train_pred)
+        train_rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
+        train_mae = mean_absolute_error(y_train, y_train_pred)
+
+        y_test_pred = model.predict(X_test)
+        test_r2 = r2_score(y_test, y_test_pred)
+        test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
+        test_mae = mean_absolute_error(y_test, y_test_pred)
+
+        print(f"Train R²: {train_r2:.4f}")
+        print(f"Train RMSE: {train_rmse:.4f}")
+        print(f"Train MAE: {train_mae:.4f}")
+        print(f"Test R²: {test_r2:.4f}")
+        print(f"Test RMSE: {test_rmse:.4f}")
+        print(f"Test MAE: {test_mae:.4f}")
+
+
+def get_structures_extra_labels(df, path, n_extra_features):
     structures, extra_features, labels = [], None, None
     for _id, row in zip(df.iloc[:, 0].to_numpy(dtype=np.str_), df.iloc[:, 1:].to_numpy(dtype=np.float32)):
         if '.' in _id:
@@ -129,47 +333,7 @@ def train_tdc_net(id_target_csv: str = 'id_prop.csv'):
                 extra_features = np.vstack([extra_features, row[:-1].reshape(1, -1)])
                 labels = np.vstack([labels, row[-1:].reshape(1, -1)])
 
-    datasets_dir = path / 'datasets'
-    os.makedirs(datasets_dir, exist_ok=True)
-    train_loader, val_loader, test_loader = get_dataloader(
-        structures,
-        labels,
-        extra_features,
-        extra_columns=df.iloc[:, 1:-1].columns if n_extra_features > 0 else None,
-        scaler_path=datasets_dir,
-        save_path=None if args.no_save else datasets_dir,
-        batch_size=args.batch_size,
-        train_val_test_ratio=(args.train_ratio, args.val_ratio, args.test_ratio),
-        augment=args.augment,
-        load_data=not args.no_load_data
-    )
-    structure_feature, tabular_features, _ = next(iter(train_loader))
-
-    model = simple_net(
-        num_features=tabular_features.shape[1],
-        in_channels=structure_feature.shape[1],
-    )
-    initialize_weights(model)
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.step_size, args.step_gamma)
-    if args.task == 'regression':
-        criterion = nn.MSELoss()
-    else:
-        criterion = nn.BCELoss()
-
-    train_and_eval(
-        model,
-        train_loader,
-        val_loader,
-        criterion,
-        optimizer,
-        scheduler=scheduler,
-        checkpoint_path=ckpt_dir.name,
-        checkpoint_step=1,
-        start_epoch=1,
-        num_epochs=args.epochs,
-    )
+    return structures, extra_features, labels
 
 
 if __name__ == '__main__':

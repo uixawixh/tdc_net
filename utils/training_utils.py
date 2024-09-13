@@ -91,7 +91,7 @@ def train_and_eval(
         criterion,
         optimizer,
         scheduler=None,
-        checkpoint_path: str = '',
+        checkpoint_path: str | os.PathLike[str] = '',
         checkpoint_step: int = 1,
         start_epoch: int = 1,
         num_epochs: int = 30,

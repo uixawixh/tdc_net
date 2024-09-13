@@ -51,7 +51,7 @@ class RandomCropAndRotate3D:
 
 class CnnDataset(Dataset):
 
-    def __init__(self, data, extra=None, transform: Callable = None, scaler=None):
+    def __init__(self, data, extra=None, transform: Callable = None, scaler=None, use_scaler=True):
         assert extra is None or len(data) == len(extra)
         self.data = [(torch.tensor(i), torch.tensor(j)) for i, j in data]
         self.extra_features = None
@@ -59,7 +59,7 @@ class CnnDataset(Dataset):
             self.extra_features = np.asarray(extra, dtype=np.float32)
 
         self.transform = transform
-        if scaler is None:
+        if scaler is None and use_scaler:
             scaler = StandardScaler()
             scaler.fit(self.extra_features)
         self.scaler = scaler
@@ -156,7 +156,8 @@ def get_dataloader(
         augment: bool = False,
         drop_col: List[str] = None,
         select_col: List[str] = None,
-        load_data: bool = True
+        load_data: bool = True,
+        use_scaler: bool = True,
 ):
     # save == '' indicates no save
     assert len(train_val_test_ratio) == 3
@@ -194,11 +195,11 @@ def get_dataloader(
         scaler = None
         if scaler_path is not None and os.path.exists(f'{scaler_path}/scaler.joblib'):
             scaler = joblib.load(f'{scaler_path}/scaler.joblib')
-        train_dataset = CnnDataset(train_data, train_extra, transform=transform, scaler=scaler)
+        train_dataset = CnnDataset(train_data, train_extra, transform=transform, scaler=scaler, use_scaler=use_scaler)
         scaler = train_dataset.scaler
         save_path and joblib.dump(scaler, f'{save_path}/scaler.joblib')
-        val_dataset = CnnDataset(val_data, val_extra, scaler=scaler)
-        test_dataset = CnnDataset(test_data, test_extra, scaler=scaler)
+        val_dataset = CnnDataset(val_data, val_extra, scaler=scaler, use_scaler=use_scaler)
+        test_dataset = CnnDataset(test_data, test_extra, scaler=scaler, use_scaler=use_scaler)
 
     train_loader, val_loader, test_loader = None, None, None
     # Load or save the dataset

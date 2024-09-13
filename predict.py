@@ -1,12 +1,64 @@
+import sys
+import pathlib
 import argparse
+
+import joblib
+import numpy as np
+import pandas as pd
+
+from main import get_structures_extra_labels
+from utils.feature_utils import FeatureExtract
 
 parser = argparse.ArgumentParser(description='Prediction model')
 parser.add_argument('model_path', help='path to the trained model.')
-parser.add_argument('crystal_path', help='path to the directory of crystal files.')
+parser.add_argument('predict_path', help='path to the directory of crystal files.')
+parser.add_argument('--csv', action='store_true',
+                    help='Use csv file to predict')
+parser.add_argument('--has-label', action='store_true',
+                    help='The csv file\'s last column is label')
+
+args = parser.parse_args(sys.argv[1:])
+
+
+def main():
+    pass
 
 
 def predict_tdc_net(id_target_csv: str = 'id_target.csv'):
     pass
+
+
+def predict_xgboost(id_target_csv: str = 'id_target.csv'):
+    global args
+
+    dir_path = args.model_path
+    predict_path = pathlib.Path(args.predict_path) / 'train.csv'
+    path = pathlib.Path(dir_path)
+    if not path.exists() or not path.is_dir():
+        raise NotADirectoryError(f'Check the {dir_path}!')
+    if not predict_path.exists() or not predict_path.is_file():
+        raise NotADirectoryError(f'Check the {predict_path}!')
+
+    model = joblib.load('xgboost.joblib')
+
+    csv_path = pathlib.Path(path / id_target_csv)
+    if not csv_path.exists():
+        raise FileNotFoundError(f'You need a file named {id_target_csv}')
+    df = pd.read_csv(csv_path, dtype=np.object_)
+    n_extra_features = max(df.shape[1] - 1, 0)
+
+    fe = FeatureExtract(dir_path)
+    structures, extra_features, labels = get_structures_extra_labels(df, path, n_extra_features)
+    df_features = fe.get_features(
+        structures,
+        labels,
+        data_extra=extra_features,
+        extra_columns=list(df.columns)[1:-1] if n_extra_features > 0 else None,
+        save=False,
+        select_col=pd.read_csv(predict_path).columns.iloc[:-1],
+        picture_feature=False,
+        with_label=True,
+    )
 
 
 def predict_band_gap_hse(structures, extra_features, extra_cols, model: str = 'GAP_HSE_PBE') -> list[float]:

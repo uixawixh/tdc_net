@@ -38,8 +38,8 @@ python predict.py -h
 ```
 Then run it.
 ```powershell
-python main.py examples/regression_examples --model tdcnet
-python main.py examples/classification_examples --model xgboost
+python main.py examples/regression_example --model tdcnet
+python main.py examples/classification_example --model xgboost
 ```
 Replace the directory with your own directory to train your data.
 ## TODO

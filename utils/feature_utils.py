@@ -68,7 +68,7 @@ SPDF = ['s', 'p', 'd', 'f']
 
 
 class FeatureExtract:
-    TRAIN = 'train_data'
+    TRAIN = 'data'
     TEST = 'test_data'
 
     def __init__(self, dir_path: str = None):
