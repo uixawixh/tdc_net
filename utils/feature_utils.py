@@ -121,21 +121,20 @@ class FeatureExtract:
                 self.columns.extend(others)
 
                 res = pd.DataFrame(columns=self.columns)
-                if picture_feature:
-                    res['STRUCTURE'] = pd.Series([structure_to_feature(x) for x in tqdm(
-                        data_structure, "Converting structures to Matrix", total=len(data_structure), unit='row'
-                    )])
-                if with_label:
-                    res['LABEL'] = np.asarray(data_y)
 
                 extra_features = np.array([single_column_descriptor(x) for x in tqdm(
                     data_structure, "Converting structures to Single", total=len(data_structure), unit='row'
                 )], dtype=np.float32)
                 if data_extra is not None:
-                    extra_features = np.hstack([extra_features, np.array(data_extra)], dtype=np.float32)
+                    extra_features = np.hstack([extra_features, np.asarray(data_extra)], dtype=np.float32)
+                if picture_feature:
+                    extra_features = np.hstack([extra_features, [structure_to_feature(x) for x in tqdm(
+                        data_structure, "Converting structures to Matrix", total=len(data_structure), unit='row'
+                    )]])
+                if with_label:
+                    extra_features = np.hstack([extra_features, np.asarray(data_y)])
 
-                index = len(self.columns) - int(with_label) - int(picture_feature)
-                res.iloc[:, :index] = extra_features
+                res = pd.concat([res, pd.DataFrame(extra_features, columns=res.columns)], ignore_index=True)
 
                 if select_col:
                     self.columns = select_col + others
