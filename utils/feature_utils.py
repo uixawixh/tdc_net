@@ -122,9 +122,17 @@ class FeatureExtract:
 
                 res = pd.DataFrame(columns=self.columns)
 
-                extra_features = np.array([single_column_descriptor(x) for x in tqdm(
+                extra_features = []
+                for x in tqdm(
                     data_structure, "Converting structures to Single", total=len(data_structure), unit='row'
-                )], dtype=np.float32)
+                ):
+                    try:
+                        descriptor = single_column_descriptor(x)
+                        extra_features.append(descriptor)
+                    except (TypeError, AttributeError, KeyError):
+                        print(f'Drop structure {x.formula}')
+                        continue
+                extra_features = np.array(extra_features, dtype=np.float32)
                 if data_extra is not None:
                     extra_features = np.hstack([extra_features, np.asarray(data_extra)], dtype=np.float32)
                 if picture_feature:
