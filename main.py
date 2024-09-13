@@ -74,7 +74,7 @@ hyperparam_group.add_argument('--augment', action='store_true',
 
 xgb_hyperparam_group = parser.add_argument_group('XGBoost Hyperparameters')
 
-xgb_hyperparam_group.add_argument('-lr', '--learning-rate', default=0.01, type=float,
+xgb_hyperparam_group.add_argument('-xlr', '--xgb-learning-rate', default=0.01, type=float,
                                   help='Learning rate (shrinkage factor) to prevent overfitting (default: 0.01)')
 xgb_hyperparam_group.add_argument('--n-estimators', default=100, type=int,
                                   help='Number of boosting rounds/trees (default: 100)')
@@ -121,10 +121,8 @@ def main():
 
     if task == 'regression' and model_name == 'tdcnet':
         train_tdc_net()
-    elif task == 'regression' and model_name == 'xgboost':
-        pass
-    elif task == 'classification' and model_name == 'xgboost':
-        pass
+    elif model_name == 'xgboost':
+        train_xgboost()
     else:
         raise
 
@@ -255,15 +253,16 @@ def train_xgboost(id_target_csv: str = 'id_prop.csv'):
         X_val, X_test, y_val, y_test = train_test_split(X_val, y_val,
                                                         test_size=temp_size - args.val_ratio,
                                                         random_state=config.SEED)
-        pd.DataFrame(np.hstack([X_test, y_test]), columns=df_features.columns).to_csv(dir_path / 'test.csv')
+        pd.DataFrame(np.hstack([X_test, y_test]), columns=df_features.columns).to_csv(path / 'test.csv')
 
-    pd.DataFrame(np.hstack([X_train, y_train]), columns=df_features.columns).to_csv(dir_path / 'train.csv')
-    pd.DataFrame(np.hstack([X_val, y_val]), columns=df_features.columns).to_csv(dir_path / 'val.csv')
+    pd.DataFrame(np.hstack([X_train, y_train.reshape(-1, 1)]), columns=df_features.columns).to_csv(
+        path / 'train.csv')
+    pd.DataFrame(np.hstack([X_val, y_val.reshape(-1, 1)]), columns=df_features.columns).to_csv(path / 'val.csv')
     print('The data has been generated!')
 
     model.fit(X_train, y_train)
     if not args.no_save:
-        joblib.dump(model, 'xgboost.joblib')
+        joblib.dump(model, path / 'xgboost.joblib')
 
     evaluate_model(model, X_train, y_train, X_val, y_val, args.task)
 
