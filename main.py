@@ -74,23 +74,23 @@ hyperparam_group.add_argument('--augment', action='store_true',
 
 xgb_hyperparam_group = parser.add_argument_group('XGBoost Hyperparameters')
 
-xgb_hyperparam_group.add_argument('-xlr', '--xgb-learning-rate', default=0.01, type=float,
-                                  help='Learning rate (shrinkage factor) to prevent overfitting (default: 0.01)')
+xgb_hyperparam_group.add_argument('-xlr', '--xgb-learning-rate', default=0.1, type=float,
+                                  help='Learning rate (shrinkage factor) to prevent overfitting (default: 0.1)')
 xgb_hyperparam_group.add_argument('--n-estimators', default=100, type=int,
                                   help='Number of boosting rounds/trees (default: 100)')
 xgb_hyperparam_group.add_argument('--max-depth', default=3, type=int,
                                   help='Maximum depth of a tree (default: 3). Higher depth can lead to overfitting')
 xgb_hyperparam_group.add_argument('--min-child-weight', default=3, type=int,
                                   help='Minimum sum of instance weight (hessian) needed in a child (default: 3)')
-xgb_hyperparam_group.add_argument('--gamma', default=0.1, type=float,
-                                  help='Minimum loss reduction required to make a further partition (default: 0.1)')
+xgb_hyperparam_group.add_argument('--gamma', default=0.0, type=float,
+                                  help='Minimum loss reduction required to make a further partition (default: 0.0)')
 xgb_hyperparam_group.add_argument('--subsample', default=1.0, type=float,
                                   help='Subsample ratio of the training instances (default: 1.0, full data)')
 xgb_hyperparam_group.add_argument('--colsample-bytree', default=1.0, type=float,
                                   help='Subsample ratio of columns when constructing each tree '
                                        '(default: 1.0, full features)')
-xgb_hyperparam_group.add_argument('--reg-lambda', default=1e-5, type=float,
-                                  help='L2 regularization term on weights (default: 1e-5). '
+xgb_hyperparam_group.add_argument('--reg-lambda', default=1e-4, type=float,
+                                  help='L2 regularization term on weights (default: 1e-4). '
                                        'Helps control model complexity')
 xgb_hyperparam_group.add_argument('--reg-alpha', default=0.0, type=float,
                                   help='L1 regularization term on weights (default: 0.0). '
@@ -206,7 +206,7 @@ def train_xgboost(id_target_csv: str = 'id_prop.csv'):
         raise NotADirectoryError(f'Check the {dir_path}!')
 
     params = {
-        'learning_rate': args.learning_rate,
+        'learning_rate': args.xgb_learning_rate,
         'n_estimators': args.n_estimators,
         'max_depth': args.max_depth,
         'min_child_weight': args.min_child_weight,
