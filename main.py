@@ -316,12 +316,11 @@ def get_structures_extra_labels(df, path, n_extra_features):
             zip(df.iloc[:, 0].to_numpy(dtype=np.str_), df.iloc[:, 1:].to_numpy(dtype=np.float32)),
             desc='Generate features', total=len(df), unit='row'
     ):
-        if '.' in _id:
-            filename = _id
-        else:
-            filename = f'{_id}.{args.crystal_file_type}'
-
-        structures.append(Structure.from_file(path / filename))
+        filename = _id if '.' in _id else f'{_id}.{args.crystal_file_type}'
+        file_path = path / filename
+        if not file_path.exists():
+            continue
+        structures.append(Structure.from_file(file_path))
 
         if n_extra_features == 0:
             if labels is None:
