@@ -10,6 +10,7 @@ import torch
 import numpy as np
 import pandas as pd
 from torch import nn
+from tqdm import tqdm
 from pymatgen.core import Structure
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.pipeline import make_pipeline
@@ -311,7 +312,10 @@ def evaluate_model(model, X_train, y_train, X_test, y_test, task_type):
 
 def get_structures_extra_labels(df, path, n_extra_features):
     structures, extra_features, labels = [], None, None
-    for _id, row in zip(df.iloc[:, 0].to_numpy(dtype=np.str_), df.iloc[:, 1:].to_numpy(dtype=np.float32)):
+    for _id, row in tqdm(
+            zip(df.iloc[:, 0].to_numpy(dtype=np.str_), df.iloc[:, 1:].to_numpy(dtype=np.float32)),
+            desc='Generate features', total=len(df), unit='row'
+    ):
         if '.' in _id:
             filename = _id
         else:
