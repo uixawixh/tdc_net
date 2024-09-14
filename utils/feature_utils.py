@@ -122,25 +122,28 @@ class FeatureExtract:
 
                 res = pd.DataFrame(columns=self.columns)
 
-                extra_features = []
-                for x in tqdm(
+                extra_features, select_indices = [], []
+                for idx, x in enumerate(tqdm(
                     data_structure, "Converting structures to Single", total=len(data_structure), unit='row'
-                ):
+                )):
                     try:
                         descriptor = single_column_descriptor(x)
                         extra_features.append(descriptor)
+                        select_indices.append(idx)
                     except (TypeError, AttributeError, KeyError):
                         print(f'Drop structure {x.formula}')
                         continue
+
                 extra_features = np.array(extra_features, dtype=np.float32)
                 if data_extra is not None:
-                    extra_features = np.hstack([extra_features, np.asarray(data_extra)], dtype=np.float32)
+                    extra_features = np.hstack(
+                        [extra_features, np.asarray(data_extra)[select_indices]], dtype=np.float32)
                 if picture_feature:
                     extra_features = np.hstack([extra_features, [structure_to_feature(x) for x in tqdm(
                         data_structure, "Converting structures to Matrix", total=len(data_structure), unit='row'
                     )]])
                 if with_label:
-                    extra_features = np.hstack([extra_features, np.asarray(data_y)])
+                    extra_features = np.hstack([extra_features, np.asarray(data_y)[select_indices]])
 
                 res = pd.concat([res, pd.DataFrame(extra_features, columns=res.columns)], ignore_index=True)
 

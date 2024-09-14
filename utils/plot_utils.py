@@ -1,6 +1,7 @@
 import random
 from typing import Union, Tuple
 
+import shap
 import torch
 import numpy as np
 import pandas as pd
@@ -253,16 +254,32 @@ def plot_corr_scatter(feature1, feature2, limit: int = 300):
     plt.show()
 
 
+def plot_shap(X, model, feature_names):
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X)
+
+    shap.summary_plot(shap_values, X, feature_names=feature_names)
+
+    mean_abs_shap_values = np.abs(shap_values).mean(axis=0)
+
+    feature_importance_df = pd.DataFrame({
+        'Feature': feature_names,
+        'Mean_Abs_SHAP': mean_abs_shap_values
+    })
+
+    top_10_features = feature_importance_df.sort_values(by='Mean_Abs_SHAP', ascending=False).head(10)
+    print("Top 10 important features:")
+    print(top_10_features)
+
+
 if __name__ == '__main__':
-    from data_utils import MlpDataset, get_data_from_db
-    from feature_utils import structure_to_feature, read_structure_file
+    from data_utils import get_data_from_db
 
     data, _ = get_data_from_db(
         '../datasets/c2db.db',
         select={'selection': 'gap_hse'},
         target='gap_hse',
-        max_size=96**2
+        max_size=96 ** 2
     )
-    print(sum(np.array(list(map(lambda x: x[1], data))) >= 1))
-    plot_hist(list(map(lambda x: x[1], data)), '', 'Gap_HSE[eV]')
+    plot_hist(np.sqrt(list(map(lambda x: x[1], data))), '', 'Gap_HSE[eV]')
     # plot_atoms(structure_to_feature((read_structure_file('POSCAR'))))

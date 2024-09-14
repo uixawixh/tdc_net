@@ -13,7 +13,7 @@ from torch import nn
 from tqdm import tqdm
 from pymatgen.core import Structure
 from xgboost import XGBClassifier, XGBRegressor
-from sklearn.pipeline import make_pipeline
+from sklearn.pipeline import make_pipeline, Pipeline
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_auc_score, mean_squared_error, r2_score, mean_absolute_error
@@ -24,6 +24,7 @@ from models.tdc_net import simple_net
 from models.base_model import initialize_weights
 from utils.training_utils import train_and_eval
 from utils.data_utils import get_dataloader
+from utils.plot_utils import plot_shap
 
 parser = argparse.ArgumentParser(description='Two-Dimensional Crystal Neural Networks')
 
@@ -246,6 +247,7 @@ def train_xgboost(id_target_csv: str = 'id_prop.csv'):
         picture_feature=False,
         with_label=True,
     )
+    feature_names = list(df_features.columns)[:-1]
 
     X, y = df_features.iloc[:, :-1].to_numpy(), df_features.iloc[:, -1].to_numpy()
     temp_size = args.test_ratio + args.val_ratio
@@ -266,6 +268,20 @@ def train_xgboost(id_target_csv: str = 'id_prop.csv'):
         joblib.dump(model, path / 'xgboost.joblib')
 
     evaluate_model(model, X_train, y_train, X_val, y_val, args.task)
+
+    plot_xgboost(model, X_train, y_train, X_val, y_val, args.task, feature_names)
+
+
+def plot_xgboost(model, X_train, y_train, X_val, y_val, task_type, feature_names):
+    if isinstance(model, Pipeline):
+        scaler = model.named_steps['minmaxscaler']
+        X_train, X_val = scaler.transform(X_train), scaler.transform(X_val)
+        model = model.named_steps['xgbregressor'] if task_type == 'regression' else model.named_steps['xgbclassfier']
+
+    if task_type == 'regression':
+        plot_shap(X_train, model, feature_names)
+    else:
+        plot_shap(X_train, model, feature_names)
 
 
 def evaluate_model(model, X_train, y_train, X_test, y_test, task_type):
